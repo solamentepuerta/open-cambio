@@ -134,7 +134,7 @@ export default function CalculatorCard({ rates: initialRates }: CalculatorCardPr
                 setBaseAmount(parseFloat(top));
             } else if (clean === "" || clean === "0") {
                 setBsAmount(0);
-                setRawUsd("0.00");
+                setRawUsd("1.00");
                 setBaseAmount(0);
             }
         },
