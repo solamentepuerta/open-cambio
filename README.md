@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="public/og-image.png" alt="Vex — Tasa libre de Venezuela" width="100%" />
+  <img src="public/icons/android-chrome-512x512.png" alt="Vex logo" width="140" />
 </p>
 
 <h1 align="center">Vex — Tasa libre de Venezuela</h1>
@@ -27,6 +27,27 @@
 
 Incluye una **calculadora de conversión** integrada: ingresa un monto en dólares, euros o bolívares y obtén el equivalente de forma automática.
 
+## 📸 Capturas de pantalla
+
+<table>
+  <tr>
+    <td align="center"><strong>Splash Screen</strong></td>
+    <td align="center"><strong>Pantalla principal</strong></td>
+  </tr>
+  <tr>
+    <td><img src="public/screenshots/1-splash.png" alt="Splash screen con logo giratorio" width="400" /></td>
+    <td><img src="public/screenshots/2-home.png" alt="Pantalla principal con calculadora y tasas" width="400" /></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Calendario histórico</strong></td>
+    <td align="center"><strong>Ajustes</strong></td>
+  </tr>
+  <tr>
+    <td><img src="public/screenshots/3-calendar.png" alt="Calendario de tasas históricas" width="400" /></td>
+    <td><img src="public/screenshots/4-settings.png" alt="Panel de ajustes con temas y colores" width="400" /></td>
+  </tr>
+</table>
+
 ## ✨ Características
 
 | Función | Descripción |
@@ -40,12 +61,6 @@ Incluye una **calculadora de conversión** integrada: ingresa un monto en dólar
 | 🎨 **Personalizable** | Modo oscuro/claro y colores de acento |
 | 📴 **Funciona sin internet** | La PWA muestra la última información disponible offline |
 | 🚫 **Sin anuncios** | Experiencia limpia, sin banners ni pop-ups |
-
-## 📸 Vista previa
-
-<p align="center">
-  <img src="public/icons/android-chrome-512x512.png" alt="Vex logo" width="120" />
-</p>
 
 ## 🚀 Instalación local
 
