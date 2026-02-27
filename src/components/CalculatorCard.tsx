@@ -45,7 +45,7 @@ export default function CalculatorCard({ rates: initialRates }: CalculatorCardPr
 
     const [mounted, setMounted] = useState(false);
     const [animateIn, setAnimateIn] = useState(false);
-    const [rawUsd, setRawUsd] = useState("0.00");
+    const [rawUsd, setRawUsd] = useState("1");
     const [rawBs, setRawBs] = useState("0.00");
     const [showCustomModal, setShowCustomModal] = useState(false);
     const [allRates, setAllRates] = useState<RateEntry[]>(initialRates);
