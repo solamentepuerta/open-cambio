@@ -16,7 +16,7 @@ interface CurrencyState {
 }
 
 export const useCurrencyStore = create<CurrencyState>((set) => ({
-    baseAmount: 0,
+    baseAmount: 1,
     bsAmount: 0,
     lastEdited: "usd",
     selectedRate: "USD",
