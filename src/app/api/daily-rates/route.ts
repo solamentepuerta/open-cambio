@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import fs from "fs";
-import path from "path";
-
-const DAILY_FILE = path.join(process.cwd(), "data", "rates-daily.json");
+import { DAILY_FILE } from "@/lib/fallback";
 
 export async function GET() {
     try {
