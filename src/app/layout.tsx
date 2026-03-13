@@ -7,6 +7,7 @@ import SettingsPanel from "@/components/SettingsPanel";
 import CalendarPanel from "@/components/CalendarPanel";
 import SplashScreen from "@/components/SplashScreen";
 import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
+import { Analytics } from "@vercel/analytics/react";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -100,6 +101,7 @@ export default function RootLayout({
           {children}
           <CalendarPanel />
           <SettingsPanel />
+          <Analytics />
         </ThemeProvider>
       </body>
     </html>
