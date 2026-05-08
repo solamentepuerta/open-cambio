@@ -2,14 +2,19 @@ import Header from "@/components/Header";
 import CalculatorCard from "@/components/CalculatorCard";
 import CurrencyList from "@/components/CurrencyList";
 import Footer from "@/components/Footer";
-import { getExchangeRates } from "@/lib/api";
+import AnnouncementPopup from "@/components/AnnouncementPopup";
+import { getExchangeRates, getPreviousDayRates } from "@/lib/api";
+import { AlertTriangle } from "lucide-react";
 
 // Forzar que se ejecute en el servidor en cada petición
 // (la lógica de cache está en api.ts, no en ISR de Next.js)
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const { rates, source, fetchedAt } = await getExchangeRates();
+  const [{ rates, source, fetchedAt }, previousRates] = await Promise.all([
+    getExchangeRates(),
+    getPreviousDayRates()
+  ]);
 
   // Formatear fecha/hora de la última actualización
   const lastUpdate = new Date(fetchedAt);
@@ -39,14 +44,16 @@ export default async function Home() {
           </span>
         </div>
         {source === "fallback" && (
-          <p className="text-xs text-red-400/80 ml-1 mt-1">
-            ⚠ Datos de respaldo — la API no respondió
-          </p>
+          <div className="text-xs text-amber-500 flex items-center gap-1 ml-1 mt-1 font-medium">
+            <AlertTriangle className="w-3.5 h-3.5" />
+            Datos desactualizados — sin conexión a la API
+          </div>
         )}
       </div>
 
-      <CurrencyList rates={rates} />
+      <CurrencyList rates={rates} previousRates={previousRates} />
       <Footer />
+      <AnnouncementPopup />
     </main>
   );
 }

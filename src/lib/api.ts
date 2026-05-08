@@ -1,6 +1,17 @@
 import { RatesData, RateEntry } from "@/types";
+import { safeRedisGet, safeRedisSet } from "@/lib/redis";
 import fs from "fs";
 import path from "path";
+
+function getAdaptiveCacheDuration(): number {
+    const now = new Date();
+    const day = now.getDay(); // 0=Dom, 6=Sab
+    const hour = now.getHours();
+
+    if (day === 0 || day === 6) return 24 * 60 * 60 * 1000; // 24h en fines de semana
+    if (hour >= 21 || hour < 8) return 12 * 60 * 60 * 1000; // 12h en horario nocturno
+    return 8 * 60 * 60 * 1000; // 8h normal en días hábiles
+}
 
 // ============================================================
 // Configuración del cache
@@ -17,20 +28,20 @@ const FALLBACK_RATES: RateEntry[] = [
     {
         name: "Dólar BCV",
         symbol: "USD",
-        rate: 414.04,
-        lastUpdate: "2026-02-26T21:00:00.000Z",
+        rate: 500.46,
+        lastUpdate: new Date().toISOString(),
     },
     {
         name: "Euro BCV",
         symbol: "EUR",
-        rate: 488.60,
-        lastUpdate: "2026-02-26T21:00:00.000Z",
+        rate: 588.10,
+        lastUpdate: new Date().toISOString(),
     },
     {
         name: "USDT",
         symbol: "USDT",
-        rate: 610.92,
-        lastUpdate: "2026-02-26T21:00:00.000Z",
+        rate: 649.48,
+        lastUpdate: new Date().toISOString(),
     },
 ];
 
@@ -47,7 +58,7 @@ function readCache(): RatesData | null {
     }
 }
 
-function writeCache(data: RatesData): void {
+async function writeCache(data: RatesData): Promise<void> {
     try {
         const dir = path.dirname(CACHE_FILE);
         if (!fs.existsSync(dir)) {
@@ -56,10 +67,11 @@ function writeCache(data: RatesData): void {
         fs.writeFileSync(CACHE_FILE, JSON.stringify(data, null, 2), "utf-8");
         console.log("💾 Cache actualizado:", CACHE_FILE);
 
-        // Registrar en historial detallado
-        appendHistory(data);
-        // Registrar en resumen diario (1 por día)
-        updateDailyRecord(data);
+        // No bloquear la respuesta principal
+        void Promise.all([
+            Promise.resolve().then(() => appendHistory(data)),
+            updateDailyRecord(data),
+        ]);
     } catch (err) {
         console.error("⚠ No se pudo escribir el cache:", err);
     }
@@ -112,9 +124,15 @@ export interface DailyEntry {
 
 export type DailyRates = Record<string, DailyEntry>; // key = "YYYY-MM-DD"
 
-function updateDailyRecord(data: RatesData): void {
+function getVenezuelaDateKey(isoString: string): string {
+    return new Date(isoString).toLocaleDateString("en-CA", {
+        timeZone: "America/Caracas",
+    }); // Devuelve "YYYY-MM-DD"
+}
+
+async function updateDailyRecord(data: RatesData): Promise<void> {
     try {
-        const dayKey = data.fetchedAt.slice(0, 10); // "2026-02-26"
+        const dayKey = getVenezuelaDateKey(data.fetchedAt);
         const entry: DailyEntry = {
             usd: data.rates.find(r => r.symbol === "USD")?.rate ?? 0,
             eur: data.rates.find(r => r.symbol === "EUR")?.rate ?? 0,
@@ -132,9 +150,45 @@ function updateDailyRecord(data: RatesData): void {
         daily[dayKey] = entry;
         fs.writeFileSync(DAILY_FILE, JSON.stringify(daily, null, 2), "utf-8");
         console.log(`📅 Registro diario actualizado: ${Object.keys(daily).length} días`);
+
+        // Sincronizar rates-daily.json con Redis
+        const REDIS_KEY = "rates:daily";
+        const currentRedis = await safeRedisGet<DailyRates>(REDIS_KEY) || {};
+        currentRedis[dayKey] = entry;
+        await safeRedisSet(REDIS_KEY, currentRedis);
+        console.log("☁ Daily record sync to Redis exitoso");
+
     } catch (err) {
         console.error("⚠ No se pudo actualizar el registro diario:", err);
     }
+}
+
+export async function getPreviousDayRates(): Promise<DailyEntry | null> {
+    const REDIS_KEY = "rates:daily";
+    let dailyRates = await safeRedisGet<DailyRates>(REDIS_KEY);
+    
+    if (!dailyRates) {
+        if (fs.existsSync(DAILY_FILE)) {
+            try {
+                dailyRates = JSON.parse(fs.readFileSync(DAILY_FILE, "utf-8"));
+            } catch {
+                return null;
+            }
+        } else {
+            return null;
+        }
+    }
+
+    if (!dailyRates) return null;
+    const dates = Object.keys(dailyRates).sort();
+    
+    // Si hay menos de 2 fechas, no hay "día anterior"
+    if (dates.length < 2) return null;
+    
+    // dates.length - 1 es el último día guardado (usualmente "hoy")
+    // dates.length - 2 es el día anterior
+    const previousDateKey = dates[dates.length - 2];
+    return dailyRates[previousDateKey] || null;
 }
 
 function isCacheFresh(data: RatesData): boolean {
@@ -142,8 +196,8 @@ function isCacheFresh(data: RatesData): boolean {
     const now = Date.now();
     const ageMs = now - cachedTime;
     const ageHours = (ageMs / (1000 * 60 * 60)).toFixed(1);
-    console.log(`🕐 Cache tiene ${ageHours}h de antigüedad (máx: 8h)`);
-    return ageMs < CACHE_DURATION_MS;
+    console.log(`🕐 Cache tiene ${ageHours}h de antigüedad`);
+    return ageMs < getAdaptiveCacheDuration();
 }
 
 // ============================================================
@@ -259,6 +313,8 @@ async function fetchFreshRates(): Promise<RatesData | null> {
 // 3. Guarda el resultado nuevo en el JSON (para todos)
 // 4. Si la API falla → devuelve el cache viejo o el fallback
 // ============================================================
+let isFetching = false;
+
 export async function getExchangeRates(): Promise<RatesData> {
     const now = new Date().toISOString();
 
@@ -270,7 +326,14 @@ export async function getExchangeRates(): Promise<RatesData> {
         return cached;
     }
 
-    // ── Paso 2: Cache viejo o inexistente → consultar API ──
+    // ── Paso 2: Cache expirado o inexistente ──
+    if (isFetching) {
+        // Esperar y releer el cache que el otro request ya llenó
+        await new Promise(r => setTimeout(r, 2000));
+        return readCache() ?? { rates: FALLBACK_RATES, fetchedAt: now, source: "fallback" };
+    }
+
+    isFetching = true;
     console.log("🔄 Cache expirado o inexistente. Consultando API...");
 
     try {
@@ -278,7 +341,7 @@ export async function getExchangeRates(): Promise<RatesData> {
 
         if (freshData) {
             // Guardar en el JSON para que todos lean de aquí
-            writeCache(freshData);
+            void writeCache(freshData);
             return freshData;
         }
 
@@ -292,7 +355,9 @@ export async function getExchangeRates(): Promise<RatesData> {
     } catch (error) {
         console.error("❌ Error total, usando fallback local:", error);
         const fallbackData: RatesData = { rates: FALLBACK_RATES, fetchedAt: now, source: "fallback" };
-        writeCache(fallbackData); // Guardar fallback para no reintentar inmediatamente
+        void writeCache(fallbackData); // Guardar fallback para no reintentar inmediatamente
         return fallbackData;
+    } finally {
+        isFetching = false;
     }
 }

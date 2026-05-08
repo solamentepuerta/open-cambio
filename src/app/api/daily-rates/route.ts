@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { redis } from "@/lib/redis";
+import { safeRedisGet, safeRedisSet } from "@/lib/redis";
 import fs from "fs";
 import path from "path";
 
@@ -9,7 +9,7 @@ const LOCAL_FILE = path.join(process.cwd(), "data", "rates-daily.json");
 export async function GET() {
     try {
         // 1. Intentar obtener datos de Redis
-        let data = await redis.get(REDIS_KEY);
+        let data = await safeRedisGet(REDIS_KEY);
 
         // 2. Si Redis está vacío, intentar hacer el "seed" desde el archivo local
         if (!data) {
@@ -20,7 +20,7 @@ export async function GET() {
                     data = JSON.parse(raw);
                     
                     // Guardar en Redis para futuras peticiones
-                    await redis.set(REDIS_KEY, data);
+                    await safeRedisSet(REDIS_KEY, data);
                     console.log("Redis seeded with local data/rates-daily.json");
                 } catch (seedError) {
                     console.error("Failed to seed from local file:", seedError);
@@ -38,10 +38,15 @@ export async function GET() {
 
 export async function POST(request: Request) {
     try {
+        const secret = request.headers.get("x-api-secret");
+        if (secret !== process.env.API_SECRET) {
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
+
         const body = await request.json();
         
         // Guardar el nuevo historial en Redis
-        await redis.set(REDIS_KEY, body);
+        await safeRedisSet(REDIS_KEY, body);
         
         return NextResponse.json({ success: true });
     } catch (error) {

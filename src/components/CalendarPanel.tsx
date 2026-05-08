@@ -20,24 +20,28 @@ export default function CalendarPanel() {
     const [animatingOut, setAnimatingOut] = useState(false);
     const [dailyRates, setDailyRates] = useState<DailyRates>({});
     const [loaded, setLoaded] = useState(false);
+    const [lastFetch, setLastFetch] = useState<number>(0);
+    const STALE_MS = 5 * 60 * 1000; // 5 minutos
 
     // Mes/año que se muestra en el calendario
     const today = new Date();
     const [viewMonth, setViewMonth] = useState(today.getMonth());
     const [viewYear, setViewYear] = useState(today.getFullYear());
 
-    // Cargar datos al abrir por primera vez
+    // Cargar datos al abrir por primera vez o si están viejos
     useEffect(() => {
-        if (open && !loaded) {
+        const isStale = Date.now() - lastFetch > STALE_MS;
+        if (open && (!loaded || isStale)) {
             fetch("/api/daily-rates")
                 .then((res) => res.json())
                 .then((data: DailyRates) => {
                     setDailyRates(data);
                     setLoaded(true);
+                    setLastFetch(Date.now());
                 })
                 .catch(() => setLoaded(true));
         }
-    }, [open, loaded]);
+    }, [open, loaded, lastFetch]);
 
     const handleClose = useCallback(() => {
         setAnimatingOut(true);

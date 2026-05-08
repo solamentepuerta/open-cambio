@@ -10,6 +10,7 @@ interface CurrencyCardProps {
     rate: number;
     lastUpdate: string;
     index: number; // Para la animación staggered
+    previousRate?: number;
 }
 
 export default function CurrencyCard({
@@ -18,6 +19,7 @@ export default function CurrencyCard({
     rate,
     lastUpdate,
     index,
+    previousRate,
 }: CurrencyCardProps) {
     const { baseAmount, bsAmount, lastEdited } = useCurrencyStore();
     const [mounted, setMounted] = useState(false);
@@ -53,10 +55,25 @@ export default function CurrencyCard({
             })
             : "0.00";
 
-    // Tendencia visual
-    const trend: "up" | "down" | "neutral" =
-        symbol === "USDT" ? "up" : symbol === "EUR" ? "down" : "neutral";
-    const trendValue = symbol === "USDT" ? "+0.3%" : symbol === "EUR" ? "-0.1%" : "0.0%";
+    // Tendencia visual comparada con el día anterior
+    let trend: "up" | "down" | "neutral" = "neutral";
+    let trendValue = "0.0%";
+
+    if (previousRate && previousRate > 0) {
+        const diff = rate - previousRate;
+        const percent = (diff / previousRate) * 100;
+        
+        if (Math.abs(percent) < 0.01) {
+            trend = "neutral";
+            trendValue = "0.0%";
+        } else if (percent > 0) {
+            trend = "up";
+            trendValue = `+${percent.toFixed(2)}%`;
+        } else {
+            trend = "down";
+            trendValue = `${percent.toFixed(2)}%`;
+        }
+    }
 
     // Fecha formateada
     const dateStr = (() => {
