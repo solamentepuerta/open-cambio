@@ -113,6 +113,31 @@ function trimDaily(daily: DailyRates, now: Date): DailyRates {
   return Object.fromEntries(Object.entries(daily).filter(([key]) => key >= cutoffKey));
 }
 
+export function parseDailyRatesPayload(value: unknown): DailyRates | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+
+  const parsed: DailyRates = {};
+  for (const [key, rawEntry] of Object.entries(value)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || !rawEntry || typeof rawEntry !== "object") continue;
+    const entry = rawEntry as Partial<DailyEntry>;
+    if (
+      ![entry.usd, entry.eur, entry.usdt].every(
+        (rate) => typeof rate === "number" && Number.isFinite(rate) && rate > 0,
+      ) ||
+      typeof entry.date !== "string" ||
+      Number.isNaN(Date.parse(entry.date))
+    ) continue;
+    parsed[key] = {
+      usd: entry.usd!,
+      eur: entry.eur!,
+      usdt: entry.usdt!,
+      date: entry.date,
+    };
+  }
+
+  return Object.keys(parsed).length ? parsed : null;
+}
+
 function trimHistory(history: HistoryEntry[], now: Date): HistoryEntry[] {
   const cutoff = now.getTime() - HISTORY_RETENTION_DAYS * 86_400_000;
   return history.filter((entry) => Date.parse(entry.date) >= cutoff).slice(-300);
@@ -248,6 +273,18 @@ async function fetchBcvScraper(): Promise<{
   }
 }
 
+async function fetchCpanelDailyRates(): Promise<DailyRates | null> {
+  try {
+    const url = process.env.BCV_HISTORY_URL
+      ?? "https://puertale.com/bcv-scraper-test/daily-rates.json";
+    const response = await fetchWithTimeout(url);
+    if (!response.ok) return null;
+    return parseDailyRatesPayload(await response.json());
+  } catch {
+    return null;
+  }
+}
+
 async function fetchPydolarve(): Promise<RateEntry[] | null> {
   try {
     const response = await fetchWithTimeout("https://pydolarve.org/api/v2/dollar?page=bcv");
@@ -348,11 +385,14 @@ export async function getExchangeRates(
 }
 
 export async function getDailyRates(): Promise<DailyRates> {
-  const redisDaily = await safeRedisGet<DailyRates>(DAILY_KEY);
-  if (redisDaily) return redisDaily;
+  const [remoteDaily, redisDaily] = await Promise.all([
+    fetchCpanelDailyRates(),
+    safeRedisGet<DailyRates>(DAILY_KEY),
+  ]);
   const localDaily = readJsonFile<DailyRates>(DAILY_FILE) ?? {};
-  if (Object.keys(localDaily).length) await safeRedisSet(DAILY_KEY, localDaily, DAILY_TTL_SECONDS);
-  return localDaily;
+  const daily = trimDaily({ ...localDaily, ...redisDaily, ...remoteDaily }, new Date());
+  if (Object.keys(daily).length) await safeRedisSet(DAILY_KEY, daily, DAILY_TTL_SECONDS);
+  return daily;
 }
 
 export async function replaceDailyRates(daily: DailyRates): Promise<boolean> {
