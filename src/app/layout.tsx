@@ -8,6 +8,7 @@ import CalendarPanel from "@/components/CalendarPanel";
 import SplashScreen from "@/components/SplashScreen";
 import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
 import { Analytics } from "@vercel/analytics/react";
+import CalculatorDrawer from "@/components/CalculatorDrawer";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -62,11 +63,18 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/icons/favicon-32x32.png", sizes: "32x32", type: "image/png" },
-      { url: "/icons/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+      { url: "/icons/favicon.ico", sizes: "any" },
+      { url: "/icons/favicon.svg", type: "image/svg+xml" },
+      { url: "/icons/favicon-96x96.png", sizes: "96x96", type: "image/png" },
     ],
     shortcut: "/icons/favicon.ico",
-    apple: "/icons/apple-touch-icon.png",
+    apple: [
+      {
+        url: "/icons/apple-touch-icon.png",
+        sizes: "180x180",
+        type: "image/png",
+      },
+    ],
   },
   appleWebApp: {
     capable: true,
@@ -90,10 +98,6 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es" suppressHydrationWarning>
-      <head>
-        <link rel="icon" href="/icons/favicon.ico" sizes="any" />
-        <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
-      </head>
       <body className={`${inter.variable} font-sans antialiased`}>
         <ThemeProvider>
           <SplashScreen />
@@ -101,6 +105,7 @@ export default function RootLayout({
           {children}
           <CalendarPanel />
           <SettingsPanel />
+          <CalculatorDrawer />
           <Analytics />
         </ThemeProvider>
       </body>

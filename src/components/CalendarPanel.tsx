@@ -13,6 +13,7 @@ interface DailyEntry {
     date: string;
 }
 type DailyRates = Record<string, DailyEntry>;
+const STALE_MS = 5 * 60 * 1000;
 
 export default function CalendarPanel() {
     const { historicalDate, setHistoricalRates } = useCurrencyStore();
@@ -21,7 +22,6 @@ export default function CalendarPanel() {
     const [dailyRates, setDailyRates] = useState<DailyRates>({});
     const [loaded, setLoaded] = useState(false);
     const [lastFetch, setLastFetch] = useState<number>(0);
-    const STALE_MS = 5 * 60 * 1000; // 5 minutos
 
     // Mes/año que se muestra en el calendario
     const today = new Date();

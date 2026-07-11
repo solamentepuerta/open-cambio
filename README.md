@@ -78,6 +78,22 @@ npm run dev
 
 Abre [http://localhost:3000](http://localhost:3000) en tu navegador.
 
+### Variables de entorno
+
+Crea `.env.local` con las credenciales del entorno. Los secretos deben tener al menos 32 caracteres:
+
+```env
+UPSTASH_REDIS_REST_URL=
+UPSTASH_REDIS_REST_TOKEN=
+API_SECRET=
+CRON_SECRET=
+BCV_SCRAPER_URL=https://puertale.com/bcv-scraper-test/latest.json
+```
+
+`CRON_SECRET` protege el refresco diario configurado en `vercel.json` para las 21:00 de Venezuela (01:00 UTC). Rota `API_SECRET` y `CRON_SECRET` periódicamente en Vercel y en cualquier integración que los utilice.
+
+`BCV_SCRAPER_URL` apunta al JSON generado cada cuatro horas por el recolector PHP. El JSON combina USD/EUR del BCV con USDT/VES de USDT.com.ve. Si una fuente no está disponible, la aplicación continúa usando DolarAPI y Pydolarve como respaldo.
+
 ## 🏗️ Tecnologías
 
 - **[Next.js 16](https://nextjs.org/)** — Framework de React con App Router

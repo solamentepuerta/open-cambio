@@ -26,10 +26,10 @@ export default function CurrencyCard({
     const [animateIn, setAnimateIn] = useState(false);
 
     useEffect(() => {
-        setMounted(true);
+        const frame = requestAnimationFrame(() => setMounted(true));
         // Delay progresivo para cada tarjeta: 200ms, 350ms, 500ms...
         const timer = setTimeout(() => setAnimateIn(true), 200 + index * 150);
-        return () => clearTimeout(timer);
+        return () => { cancelAnimationFrame(frame); clearTimeout(timer); };
     }, [index]);
 
     if (!mounted) {
@@ -100,7 +100,7 @@ export default function CurrencyCard({
         >
             {/* Izquierda: info de la moneda */}
             <div className="flex flex-col gap-0.5">
-                <span className="font-semibold text-base">{name}</span>
+                <span className="font-semibold text-base">{name} <span className="sr-only">({symbol})</span></span>
                 <div className="flex items-center gap-1 text-xs font-medium">
                     {trend === "up" && <TrendingUp className="w-3.5 h-3.5 text-green-400" />}
                     {trend === "down" && <TrendingDown className="w-3.5 h-3.5 text-red-400" />}

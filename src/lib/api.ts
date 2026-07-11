@@ -1,363 +1,367 @@
-import { RatesData, RateEntry } from "@/types";
-import { safeRedisGet, safeRedisSet } from "@/lib/redis";
 import fs from "fs";
 import path from "path";
+import {
+  DailyEntry,
+  DailyRates,
+  HistoryEntry,
+  RateEntry,
+  RatesData,
+  RefreshResult,
+} from "@/types";
+import {
+  acquireRedisLock,
+  releaseRedisLock,
+  safeRedisGet,
+  safeRedisSet,
+} from "@/lib/redis";
 
-function getAdaptiveCacheDuration(): number {
-    const now = new Date();
-    const day = now.getDay(); // 0=Dom, 6=Sab
-    const hour = now.getHours();
-
-    if (day === 0 || day === 6) return 24 * 60 * 60 * 1000; // 24h en fines de semana
-    if (hour >= 21 || hour < 8) return 12 * 60 * 60 * 1000; // 12h en horario nocturno
-    return 8 * 60 * 60 * 1000; // 8h normal en días hábiles
-}
-
-// ============================================================
-// Configuración del cache
-// ============================================================
-const CACHE_DURATION_MS = 8 * 60 * 60 * 1000; // 8 horas en milisegundos
+const TIME_ZONE = "America/Caracas";
+const CURRENT_KEY = "rates:current";
+const DAILY_KEY = "rates:daily";
+const HISTORY_KEY = "rates:history";
+const LOCK_KEY = "rates:fetching_lock";
+const CURRENT_TTL_SECONDS = 7 * 24 * 60 * 60;
+const DAILY_TTL_SECONDS = 400 * 24 * 60 * 60;
+const HISTORY_TTL_SECONDS = 90 * 24 * 60 * 60;
+const LOCK_TTL_SECONDS = 30;
+const DAILY_RETENTION_DAYS = 400;
+const HISTORY_RETENTION_DAYS = 90;
 const CACHE_FILE = path.join(process.cwd(), "data", "rates-cache.json");
-const HISTORY_FILE = path.join(process.cwd(), "data", "rates-history.json");
 const DAILY_FILE = path.join(process.cwd(), "data", "rates-daily.json");
 
-// ============================================================
-// Fallback hardcodeado (último recurso si todo falla)
-// ============================================================
-const FALLBACK_RATES: RateEntry[] = [
-    {
-        name: "Dólar BCV",
-        symbol: "USD",
-        rate: 500.46,
-        lastUpdate: new Date().toISOString(),
-    },
-    {
-        name: "Euro BCV",
-        symbol: "EUR",
-        rate: 588.10,
-        lastUpdate: new Date().toISOString(),
-    },
-    {
-        name: "USDT",
-        symbol: "USDT",
-        rate: 649.48,
-        lastUpdate: new Date().toISOString(),
-    },
+const EMERGENCY_RATES: RateEntry[] = [
+  { name: "Dólar BCV", symbol: "USD", rate: 500.46, lastUpdate: "2026-05-08T22:50:16.923Z" },
+  { name: "Euro BCV", symbol: "EUR", rate: 588.1, lastUpdate: "2026-05-08T22:50:16.923Z" },
+  { name: "USDT", symbol: "USDT", rate: 649.48, lastUpdate: "2026-05-08T22:50:16.923Z" },
 ];
 
-// ============================================================
-// Cache: leer / escribir el JSON
-// ============================================================
-function readCache(): RatesData | null {
-    try {
-        if (!fs.existsSync(CACHE_FILE)) return null;
-        const raw = fs.readFileSync(CACHE_FILE, "utf-8");
-        return JSON.parse(raw) as RatesData;
-    } catch {
-        return null;
-    }
+export interface ExchangeRateOptions {
+  forceRefresh?: boolean;
+  recordDaily?: boolean;
+  now?: Date;
 }
 
-async function writeCache(data: RatesData): Promise<void> {
-    try {
-        const dir = path.dirname(CACHE_FILE);
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-        }
-        fs.writeFileSync(CACHE_FILE, JSON.stringify(data, null, 2), "utf-8");
-        console.log("💾 Cache actualizado:", CACHE_FILE);
-
-        // No bloquear la respuesta principal
-        void Promise.all([
-            Promise.resolve().then(() => appendHistory(data)),
-            updateDailyRecord(data),
-        ]);
-    } catch (err) {
-        console.error("⚠ No se pudo escribir el cache:", err);
-    }
+function getDateParts(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  return Object.fromEntries(parts.map(({ type, value }) => [type, value]));
 }
 
-// ============================================================
-// Historial detallado: cada refresco (3 veces/día)
-// ============================================================
-interface HistoryEntry {
-    date: string;
-    usd: number | null;
-    eur: number | null;
-    usdt: number | null;
+export function getVenezuelaDateKey(date: Date | string): string {
+  const parts = getDateParts(new Date(date));
+  return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-function appendHistory(data: RatesData): void {
-    try {
-        const entry: HistoryEntry = {
-            date: data.fetchedAt,
-            usd: data.rates.find(r => r.symbol === "USD")?.rate ?? null,
-            eur: data.rates.find(r => r.symbol === "EUR")?.rate ?? null,
-            usdt: data.rates.find(r => r.symbol === "USDT")?.rate ?? null,
-        };
-
-        let history: HistoryEntry[] = [];
-        if (fs.existsSync(HISTORY_FILE)) {
-            const raw = fs.readFileSync(HISTORY_FILE, "utf-8");
-            history = JSON.parse(raw);
-        }
-
-        history.push(entry);
-        fs.writeFileSync(HISTORY_FILE, JSON.stringify(history), "utf-8");
-        console.log(`📊 Historial actualizado: ${history.length} entradas`);
-    } catch (err) {
-        console.error("⚠ No se pudo actualizar el historial:", err);
-    }
+export function isVenezuelaWeekend(date: Date): boolean {
+  const weekday = getDateParts(date).weekday;
+  return weekday === "Sat" || weekday === "Sun";
 }
 
-// ============================================================
-// Resumen Diario: solo el ÚLTIMO registro de cada día
-// Formato: { "2026-02-26": { usd, eur, usdt, date }, ... }
-// Un año ≈ 365 entradas ≈ 25 KB. Ultra ligero.
-// ============================================================
-export interface DailyEntry {
-    usd: number;
-    eur: number;
-    usdt: number;
-    date: string; // ISO timestamp del último registro
+function getAdaptiveCacheDuration(date: Date): number {
+  const parts = getDateParts(date);
+  if (parts.weekday === "Sat" || parts.weekday === "Sun") return 24 * 60 * 60 * 1000;
+  const hour = Number(parts.hour);
+  return hour >= 21 || hour < 8 ? 12 * 60 * 60 * 1000 : 8 * 60 * 60 * 1000;
 }
 
-export type DailyRates = Record<string, DailyEntry>; // key = "YYYY-MM-DD"
-
-function getVenezuelaDateKey(isoString: string): string {
-    return new Date(isoString).toLocaleDateString("en-CA", {
-        timeZone: "America/Caracas",
-    }); // Devuelve "YYYY-MM-DD"
+function isValidRatesData(value: unknown): value is RatesData {
+  if (!value || typeof value !== "object") return false;
+  const data = value as Partial<RatesData>;
+  return Boolean(
+    Array.isArray(data.rates) &&
+      data.rates.length > 0 &&
+      data.rates.every((rate) => Number.isFinite(rate.rate) && rate.rate > 0) &&
+      data.fetchedAt &&
+      !Number.isNaN(Date.parse(data.fetchedAt)),
+  );
 }
 
-async function updateDailyRecord(data: RatesData): Promise<void> {
-    try {
-        const dayKey = getVenezuelaDateKey(data.fetchedAt);
-        const entry: DailyEntry = {
-            usd: data.rates.find(r => r.symbol === "USD")?.rate ?? 0,
-            eur: data.rates.find(r => r.symbol === "EUR")?.rate ?? 0,
-            usdt: data.rates.find(r => r.symbol === "USDT")?.rate ?? 0,
-            date: data.fetchedAt,
-        };
-
-        let daily: DailyRates = {};
-        if (fs.existsSync(DAILY_FILE)) {
-            const raw = fs.readFileSync(DAILY_FILE, "utf-8");
-            daily = JSON.parse(raw);
-        }
-
-        // Sobrescribe el día actual con la última entrada
-        daily[dayKey] = entry;
-        fs.writeFileSync(DAILY_FILE, JSON.stringify(daily, null, 2), "utf-8");
-        console.log(`📅 Registro diario actualizado: ${Object.keys(daily).length} días`);
-
-        // Sincronizar rates-daily.json con Redis
-        const REDIS_KEY = "rates:daily";
-        const currentRedis = await safeRedisGet<DailyRates>(REDIS_KEY) || {};
-        currentRedis[dayKey] = entry;
-        await safeRedisSet(REDIS_KEY, currentRedis);
-        console.log("☁ Daily record sync to Redis exitoso");
-
-    } catch (err) {
-        console.error("⚠ No se pudo actualizar el registro diario:", err);
-    }
+function readJsonFile<T>(file: string): T | null {
+  try {
+    if (!fs.existsSync(file)) return null;
+    return JSON.parse(fs.readFileSync(file, "utf-8")) as T;
+  } catch {
+    return null;
+  }
 }
 
-export async function getPreviousDayRates(): Promise<DailyEntry | null> {
-    const REDIS_KEY = "rates:daily";
-    let dailyRates = await safeRedisGet<DailyRates>(REDIS_KEY);
-    
-    if (!dailyRates) {
-        if (fs.existsSync(DAILY_FILE)) {
-            try {
-                dailyRates = JSON.parse(fs.readFileSync(DAILY_FILE, "utf-8"));
-            } catch {
-                return null;
-            }
-        } else {
-            return null;
-        }
-    }
-
-    if (!dailyRates) return null;
-    const dates = Object.keys(dailyRates).sort();
-    
-    // Si hay menos de 2 fechas, no hay "día anterior"
-    if (dates.length < 2) return null;
-    
-    // dates.length - 1 es el último día guardado (usualmente "hoy")
-    // dates.length - 2 es el día anterior
-    const previousDateKey = dates[dates.length - 2];
-    return dailyRates[previousDateKey] || null;
+async function readCurrentCache(): Promise<RatesData | null> {
+  const redisData = await safeRedisGet<RatesData>(CURRENT_KEY);
+  if (isValidRatesData(redisData)) return redisData;
+  const localData = readJsonFile<RatesData>(CACHE_FILE);
+  return isValidRatesData(localData) ? localData : null;
 }
 
-function isCacheFresh(data: RatesData): boolean {
-    const cachedTime = new Date(data.fetchedAt).getTime();
-    const now = Date.now();
-    const ageMs = now - cachedTime;
-    const ageHours = (ageMs / (1000 * 60 * 60)).toFixed(1);
-    console.log(`🕐 Cache tiene ${ageHours}h de antigüedad`);
-    return ageMs < getAdaptiveCacheDuration();
+function toDailyEntry(data: RatesData): DailyEntry | null {
+  const usd = data.rates.find((rate) => rate.symbol === "USD")?.rate;
+  const eur = data.rates.find((rate) => rate.symbol === "EUR")?.rate;
+  const usdt = data.rates.find((rate) => rate.symbol === "USDT")?.rate;
+  if (![usd, eur, usdt].every((rate) => Number.isFinite(rate) && Number(rate) > 0)) return null;
+  return { usd: usd!, eur: eur!, usdt: usdt!, date: data.fetchedAt };
 }
 
-// ============================================================
-// fetch con timeout de 5s (AbortController)
-// ============================================================
-async function fetchWithTimeout(url: string, ms = 5000): Promise<Response> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), ms);
-
-    try {
-        return await fetch(url, { signal: controller.signal, cache: "no-store" });
-    } finally {
-        clearTimeout(timeoutId);
-    }
+function trimDaily(daily: DailyRates, now: Date): DailyRates {
+  const cutoff = new Date(now.getTime() - DAILY_RETENTION_DAYS * 86_400_000);
+  const cutoffKey = getVenezuelaDateKey(cutoff);
+  return Object.fromEntries(Object.entries(daily).filter(([key]) => key >= cutoffKey));
 }
 
-// ============================================================
-// Fuentes de datos
-// ============================================================
-async function fetchDolarApi(): Promise<{
-    bcv: number; usdt: number; bcvDate: string; usdtDate: string;
+function trimHistory(history: HistoryEntry[], now: Date): HistoryEntry[] {
+  const cutoff = now.getTime() - HISTORY_RETENTION_DAYS * 86_400_000;
+  return history.filter((entry) => Date.parse(entry.date) >= cutoff).slice(-300);
+}
+
+async function recordRates(data: RatesData, now: Date): Promise<void> {
+  const entry = toDailyEntry(data);
+  if (!entry) return;
+  const dayKey = getVenezuelaDateKey(now);
+  const [redisDaily, redisHistory] = await Promise.all([
+    safeRedisGet<DailyRates>(DAILY_KEY),
+    safeRedisGet<HistoryEntry[]>(HISTORY_KEY),
+  ]);
+  const localDaily = readJsonFile<DailyRates>(DAILY_FILE) ?? {};
+  const daily = trimDaily({ ...localDaily, ...redisDaily, [dayKey]: entry }, now);
+  const history = trimHistory([...(redisHistory ?? []), entry], now);
+  await Promise.all([
+    safeRedisSet(DAILY_KEY, daily, DAILY_TTL_SECONDS),
+    safeRedisSet(HISTORY_KEY, history, HISTORY_TTL_SECONDS),
+  ]);
+}
+
+async function cacheFreshRates(data: RatesData, now: Date, recordDaily: boolean): Promise<void> {
+  await safeRedisSet(CURRENT_KEY, data, CURRENT_TTL_SECONDS);
+  if (recordDaily) await recordRates(data, now);
+}
+
+function isCacheFresh(data: RatesData, now: Date): boolean {
+  return now.getTime() - Date.parse(data.fetchedAt) < getAdaptiveCacheDuration(now);
+}
+
+async function fetchWithTimeout(
+  url: string,
+  ms = 5000,
+  init: RequestInit & { next?: { revalidate: number } } = { cache: "no-store" },
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function fetchDolarApi() {
+  try {
+    const response = await fetchWithTimeout("https://ve.dolarapi.com/v1/dolares");
+    if (!response.ok) return null;
+    const data = (await response.json()) as Array<Record<string, unknown>>;
+    const official = data.find((item) => item.fuente === "oficial");
+    const parallel = data.find((item) => item.fuente === "paralelo");
+    const bcv = Number(official?.promedio);
+    if (!Number.isFinite(bcv) || bcv <= 0) return null;
+    const usdtValue = Number(parallel?.promedio);
+    return {
+      bcv,
+      usdt: Number.isFinite(usdtValue) && usdtValue > 0 ? usdtValue : bcv * 1.02,
+      bcvDate: String(official?.fechaActualizacion ?? new Date().toISOString()),
+      usdtDate: String(parallel?.fechaActualizacion ?? new Date().toISOString()),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchEuroApi() {
+  try {
+    const response = await fetchWithTimeout("https://ve.dolarapi.com/v1/euros/oficial");
+    if (!response.ok) return null;
+    const data = (await response.json()) as Record<string, unknown>;
+    const eur = Number(data.promedio);
+    return Number.isFinite(eur) && eur > 0
+      ? { eur, date: String(data.fechaActualizacion ?? new Date().toISOString()) }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+interface BcvScraperResponse {
+  source: string;
+  capturedAt: string;
+  effectiveDate: string;
+  rates: { USD: number; EUR: number; USDT?: number };
+  usdtFresh?: boolean;
+}
+
+export function parseBcvEffectiveDate(value: string): string | null {
+  const match = value.match(/(?:Lunes|Martes|Mi[eé]rcoles|Jueves|Viernes|S[aá]bado|Domingo),?\s+(\d{1,2})\s+([A-Za-zÁÉÍÓÚáéíóú]+)\s+(\d{4})/iu);
+  if (!match) return null;
+  const months: Record<string, number> = {
+    enero: 0, febrero: 1, marzo: 2, abril: 3, mayo: 4, junio: 5,
+    julio: 6, agosto: 7, septiembre: 8, octubre: 9, noviembre: 10, diciembre: 11,
+  };
+  const month = months[match[2].toLocaleLowerCase("es-VE")];
+  if (month === undefined) return null;
+  const date = new Date(Date.UTC(Number(match[3]), month, Number(match[1]), 16, 0, 0));
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+async function fetchBcvScraper(): Promise<{
+  usd: number;
+  eur: number;
+  usdt: number | null;
+  capturedAt: string;
+  effectiveAt: string;
 } | null> {
-    try {
-        const res = await fetchWithTimeout("https://ve.dolarapi.com/v1/dolares");
-        if (!res.ok) throw new Error(`dolarapi status ${res.status}`);
-        const data = await res.json();
-
-        const oficial = data.find((d: { fuente: string }) => d.fuente === "oficial");
-        const paralelo = data.find((d: { fuente: string }) => d.fuente === "paralelo");
-        const bcv = oficial?.promedio ?? null;
-        const usdt = paralelo?.promedio ?? null;
-
-        if (bcv) {
-            return {
-                bcv,
-                usdt: usdt ?? bcv * 1.02,
-                bcvDate: oficial?.fechaActualizacion ?? new Date().toISOString(),
-                usdtDate: paralelo?.fechaActualizacion ?? new Date().toISOString(),
-            };
-        }
-        return null;
-    } catch { return null; }
-}
-
-async function fetchEuroApi(): Promise<{ eur: number; date: string } | null> {
-    try {
-        const res = await fetchWithTimeout("https://ve.dolarapi.com/v1/euros/oficial");
-        if (!res.ok) throw new Error(`dolarapi euro status ${res.status}`);
-        const data = await res.json();
-        const eur = data?.promedio ?? null;
-        if (eur) return { eur, date: data?.fechaActualizacion ?? new Date().toISOString() };
-        return null;
-    } catch { return null; }
+  try {
+    const url = process.env.BCV_SCRAPER_URL
+      ?? "https://puertale.com/bcv-scraper-test/latest.json";
+    const response = await fetchWithTimeout(url);
+    if (!response.ok) return null;
+    const data = (await response.json()) as BcvScraperResponse;
+    const usd = Number(data.rates?.USD);
+    const eur = Number(data.rates?.EUR);
+    const capturedAt = new Date(data.capturedAt);
+    const effectiveAt = parseBcvEffectiveDate(data.effectiveDate);
+    if (
+      !["bcv.org.ve", "vex-scraper"].includes(data.source) ||
+      !Number.isFinite(usd) || usd <= 0 ||
+      !Number.isFinite(eur) || eur <= 0 ||
+      Number.isNaN(capturedAt.getTime()) ||
+      !effectiveAt
+    ) return null;
+    const usdtValue = Number(data.rates?.USDT);
+    const usdt = data.usdtFresh !== false && Number.isFinite(usdtValue) && usdtValue > 0
+      ? usdtValue
+      : null;
+    return { usd, eur, usdt, capturedAt: capturedAt.toISOString(), effectiveAt };
+  } catch {
+    return null;
+  }
 }
 
 async function fetchPydolarve(): Promise<RateEntry[] | null> {
-    try {
-        const res = await fetchWithTimeout("https://pydolarve.org/api/v2/dollar?page=bcv");
-        if (!res.ok) throw new Error(`pydolarve status ${res.status}`);
-        const data = await res.json();
-        const usd = data?.monitors?.usd?.price;
-        const eur = data?.monitors?.eur?.price;
-        const now = new Date().toISOString();
-        if (usd && eur) {
-            return [
-                { name: "Dólar BCV", symbol: "USD", rate: usd, lastUpdate: now },
-                { name: "Euro BCV", symbol: "EUR", rate: eur, lastUpdate: now },
-                { name: "USDT", symbol: "USDT", rate: usd * 1.02, lastUpdate: now },
-            ];
-        }
-        return null;
-    } catch { return null; }
+  try {
+    const response = await fetchWithTimeout("https://pydolarve.org/api/v2/dollar?page=bcv");
+    if (!response.ok) return null;
+    const data = (await response.json()) as { monitors?: { usd?: { price?: number }; eur?: { price?: number } } };
+    const usd = Number(data.monitors?.usd?.price);
+    const eur = Number(data.monitors?.eur?.price);
+    if (!Number.isFinite(usd) || !Number.isFinite(eur) || usd <= 0 || eur <= 0) return null;
+    const now = new Date().toISOString();
+    return [
+      { name: "Dólar BCV", symbol: "USD", rate: usd, lastUpdate: now },
+      { name: "Euro BCV", symbol: "EUR", rate: eur, lastUpdate: now },
+      { name: "USDT", symbol: "USDT", rate: usd * 1.02, lastUpdate: now },
+    ];
+  } catch {
+    return null;
+  }
 }
 
-// ============================================================
-// Obtener tasas frescas de las APIs (waterfall)
-// ============================================================
-async function fetchFreshRates(): Promise<RatesData | null> {
-    const now = new Date().toISOString();
-
-    // Paso 1: ve.dolarapi.com
-    const [dolarData, euroData] = await Promise.all([
-        fetchDolarApi(),
-        fetchEuroApi(),
-    ]);
-
-    if (dolarData) {
-        const rates: RateEntry[] = [
-            { name: "Dólar BCV", symbol: "USD", rate: dolarData.bcv, lastUpdate: dolarData.bcvDate },
-            { name: "Euro BCV", symbol: "EUR", rate: euroData?.eur ?? dolarData.bcv * 1.18, lastUpdate: euroData?.date ?? now },
-            { name: "USDT", symbol: "USDT", rate: dolarData.usdt, lastUpdate: dolarData.usdtDate },
-        ];
-        console.log("✅ Datos frescos de ve.dolarapi.com");
-        return { rates, fetchedAt: now, source: "api" };
-    }
-
-    // Paso 2: pydolarve.org (respaldo)
-    console.warn("⚠ ve.dolarapi.com falló. Intentando pydolarve...");
-    const backupRates = await fetchPydolarve();
-    if (backupRates) {
-        console.log("✅ Datos frescos de pydolarve.org");
-        return { rates: backupRates, fetchedAt: now, source: "api" };
-    }
-
-    return null; // Todas las APIs fallaron
+async function fetchFreshRates(now: Date): Promise<RatesData | null> {
+  const [bcv, dollar, euro] = await Promise.all([
+    fetchBcvScraper(),
+    fetchDolarApi(),
+    fetchEuroApi(),
+  ]);
+  if (bcv) {
+    return {
+      rates: [
+        { name: "Dólar BCV", symbol: "USD", rate: bcv.usd, lastUpdate: bcv.effectiveAt },
+        { name: "Euro BCV", symbol: "EUR", rate: bcv.eur, lastUpdate: bcv.effectiveAt },
+        { name: "USDT", symbol: "USDT", rate: bcv.usdt ?? dollar?.usdt ?? bcv.usd * 1.02, lastUpdate: bcv.usdt ? bcv.capturedAt : dollar?.usdtDate ?? bcv.capturedAt },
+      ],
+      fetchedAt: bcv.capturedAt,
+      source: "api",
+    };
+  }
+  if (dollar) {
+    return {
+      rates: [
+        { name: "Dólar BCV", symbol: "USD", rate: dollar.bcv, lastUpdate: dollar.bcvDate },
+        { name: "Euro BCV", symbol: "EUR", rate: euro?.eur ?? dollar.bcv * 1.18, lastUpdate: euro?.date ?? now.toISOString() },
+        { name: "USDT", symbol: "USDT", rate: dollar.usdt, lastUpdate: dollar.usdtDate },
+      ],
+      fetchedAt: now.toISOString(),
+      source: "api",
+    };
+  }
+  const backup = await fetchPydolarve();
+  return backup ? { rates: backup, fetchedAt: now.toISOString(), source: "api" } : null;
 }
 
-// ============================================================
-// Función principal: getExchangeRates()
-//
-// 1. Lee el JSON cache → si tiene < 8 horas, lo devuelve (sin API)
-// 2. Si el cache está viejo o no existe → consulta la API
-// 3. Guarda el resultado nuevo en el JSON (para todos)
-// 4. Si la API falla → devuelve el cache viejo o el fallback
-// ============================================================
-let isFetching = false;
+async function waitForConcurrentRefresh(fallback: RatesData | null): Promise<RatesData | null> {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const cached = await safeRedisGet<RatesData>(CURRENT_KEY);
+    if (isValidRatesData(cached) && (!fallback || cached.fetchedAt !== fallback.fetchedAt)) return cached;
+  }
+  return fallback;
+}
 
-export async function getExchangeRates(): Promise<RatesData> {
-    const now = new Date().toISOString();
+export async function getExchangeRates(
+  options: ExchangeRateOptions = {},
+): Promise<RefreshResult> {
+  const now = options.now ?? new Date();
+  const recordDaily = options.recordDaily ?? true;
+  const cached = await readCurrentCache();
 
-    // ── Paso 1: Intentar leer del cache ──
-    const cached = readCache();
+  if (isVenezuelaWeekend(now) && cached && !options.forceRefresh) {
+    const weekendData = { ...cached, source: "weekend-cache" as const };
+    if (recordDaily) await recordRates(weekendData, now);
+    return { rates: weekendData, refreshed: false };
+  }
 
-    if (cached && isCacheFresh(cached)) {
-        console.log("📦 Sirviendo desde cache (sin consulta a la API)");
-        return cached;
+  if (!options.forceRefresh && cached && isCacheFresh(cached, now)) {
+    return { rates: { ...cached, source: "cache" }, refreshed: false };
+  }
+
+  const lockToken = await acquireRedisLock(LOCK_KEY, LOCK_TTL_SECONDS);
+  if (!lockToken) {
+    const concurrent = await waitForConcurrentRefresh(cached);
+    if (concurrent) return { rates: { ...concurrent, source: "cache" }, refreshed: false };
+  }
+
+  try {
+    const fresh = await fetchFreshRates(now);
+    if (fresh) {
+      await cacheFreshRates(fresh, now, recordDaily);
+      return { rates: fresh, refreshed: true };
     }
+    if (cached) return { rates: { ...cached, source: "fallback" }, refreshed: false };
+    return {
+      rates: { rates: EMERGENCY_RATES, fetchedAt: EMERGENCY_RATES[0].lastUpdate, source: "fallback" },
+      refreshed: false,
+    };
+  } finally {
+    if (lockToken) await releaseRedisLock(LOCK_KEY, lockToken);
+  }
+}
 
-    // ── Paso 2: Cache expirado o inexistente ──
-    if (isFetching) {
-        // Esperar y releer el cache que el otro request ya llenó
-        await new Promise(r => setTimeout(r, 2000));
-        return readCache() ?? { rates: FALLBACK_RATES, fetchedAt: now, source: "fallback" };
-    }
+export async function getDailyRates(): Promise<DailyRates> {
+  const redisDaily = await safeRedisGet<DailyRates>(DAILY_KEY);
+  if (redisDaily) return redisDaily;
+  const localDaily = readJsonFile<DailyRates>(DAILY_FILE) ?? {};
+  if (Object.keys(localDaily).length) await safeRedisSet(DAILY_KEY, localDaily, DAILY_TTL_SECONDS);
+  return localDaily;
+}
 
-    isFetching = true;
-    console.log("🔄 Cache expirado o inexistente. Consultando API...");
+export async function replaceDailyRates(daily: DailyRates): Promise<boolean> {
+  return safeRedisSet(DAILY_KEY, trimDaily(daily, new Date()), DAILY_TTL_SECONDS);
+}
 
-    try {
-        const freshData = await fetchFreshRates();
-
-        if (freshData) {
-            // Guardar en el JSON para que todos lean de aquí
-            void writeCache(freshData);
-            return freshData;
-        }
-
-        // API falló pero tenemos cache viejo → usarlo
-        if (cached) {
-            console.warn("⚠ API falló, usando cache anterior (datos pueden estar desactualizados)");
-            return { ...cached, source: "fallback" };
-        }
-
-        throw new Error("Sin cache ni API disponible");
-    } catch (error) {
-        console.error("❌ Error total, usando fallback local:", error);
-        const fallbackData: RatesData = { rates: FALLBACK_RATES, fetchedAt: now, source: "fallback" };
-        void writeCache(fallbackData); // Guardar fallback para no reintentar inmediatamente
-        return fallbackData;
-    } finally {
-        isFetching = false;
-    }
+export async function getPreviousDayRates(reference = new Date()): Promise<DailyEntry | null> {
+  const daily = await getDailyRates();
+  const referenceKey = getVenezuelaDateKey(reference);
+  const previousKey = Object.keys(daily).filter((key) => key < referenceKey).sort().at(-1);
+  return previousKey ? daily[previousKey] : null;
 }
