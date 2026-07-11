@@ -88,11 +88,14 @@ UPSTASH_REDIS_REST_TOKEN=
 API_SECRET=
 CRON_SECRET=
 BCV_SCRAPER_URL=https://puertale.com/bcv-scraper-test/latest.json
+BCV_HISTORY_URL=https://puertale.com/bcv-scraper-test/daily-rates.json
 ```
 
 `CRON_SECRET` protege el refresco diario configurado en `vercel.json` para las 21:00 de Venezuela (01:00 UTC). Rota `API_SECRET` y `CRON_SECRET` periódicamente en Vercel y en cualquier integración que los utilice.
 
 `BCV_SCRAPER_URL` apunta al JSON generado cada cuatro horas por el recolector PHP. El JSON combina USD/EUR del BCV con USDT/VES de USDT.com.ve. Si una fuente no está disponible, la aplicación continúa usando DolarAPI y Pydolarve como respaldo.
+
+`BCV_HISTORY_URL` contiene hasta 400 días de tasas guardadas de forma atómica en cPanel. La aplicación combina ese historial principal con Redis y los datos locales, que permanecen como respaldo.
 
 ## 🏗️ Tecnologías
 
