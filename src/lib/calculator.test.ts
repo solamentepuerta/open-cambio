@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { INITIAL_CALCULATOR_STATE, calculate, chooseOperator, evaluate, inputDecimal, inputDigit, parseCalculatorState } from "./calculator";
+import { INITIAL_CALCULATOR_STATE, appendPastedCalculatorText, calculate, chooseOperator, evaluate, inputDecimal, inputDigit, parseCalculatorState, parsePastedCalculatorValue } from "./calculator";
 
 describe("calculator engine", () => {
   it("evaluates chained arithmetic", () => {
@@ -31,5 +31,19 @@ describe("calculator engine", () => {
   it("limits persisted history to twenty entries", () => {
     const history = Array.from({ length: 25 }, (_, index) => ({ expression: `${index}+1`, result: `${index + 1}` }));
     expect(parseCalculatorState(JSON.stringify({ ...INITIAL_CALCULATOR_STATE, history })).history).toHaveLength(20);
+  });
+
+  it("extracts pasted results with currency and locale separators", () => {
+    expect(parsePastedCalculatorValue("Bs 1.234,56")).toBe("1234.56");
+    expect(parsePastedCalculatorValue("$ 1,234.56")).toBe("1234.56");
+    expect(parsePastedCalculatorValue("2 + 3 = 5")).toBe("5");
+    expect(parsePastedCalculatorValue("sin número")).toBeNull();
+  });
+
+  it("appends pasted values and preserves the current operation", () => {
+    const current = { ...INITIAL_CALCULATOR_STATE, display: "25" };
+    expect(appendPastedCalculatorText(current, "$ 10")?.display).toBe("2510");
+    const operand = appendPastedCalculatorText(current, "+ Bs 10");
+    expect(operand).toMatchObject({ display: "10", accumulator: 25, operator: "+" });
   });
 });
