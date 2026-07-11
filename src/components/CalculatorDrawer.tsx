@@ -1,8 +1,8 @@
 "use client";
 
-import { Calculator, Delete, X } from "lucide-react";
+import { Calculator, ClipboardPaste, Delete, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CalculatorOperator, CalculatorState, INITIAL_CALCULATOR_STATE, chooseOperator, evaluate, formatCalculatorValue, inputDecimal, inputDigit, parseCalculatorState } from "@/lib/calculator";
+import { CalculatorOperator, CalculatorState, INITIAL_CALCULATOR_STATE, appendPastedCalculatorText, chooseOperator, evaluate, formatCalculatorValue, inputDecimal, inputDigit, parseCalculatorState } from "@/lib/calculator";
 
 const STORAGE_KEY = "vex-calculator-v1";
 const operatorKeys: Record<string, CalculatorOperator> = { "+": "+", "-": "−", "*": "×", "/": "÷" };
@@ -13,6 +13,24 @@ export default function CalculatorDrawer() {
   const closeRef = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLElement>(null);
   const storageLoadedRef = useRef(false);
+
+  const applyPastedText = useCallback((text: string) => {
+    const accepted = /\d|[+\-−*×/÷]/.test(text);
+    if (!accepted) return false;
+    setState((current) => {
+      const next = appendPastedCalculatorText(current, text);
+      return next ?? current;
+    });
+    return true;
+  }, []);
+
+  const pasteFromClipboard = useCallback(async () => {
+    try {
+      applyPastedText(await navigator.clipboard.readText());
+    } catch {
+      setState((current) => ({ ...current, error: "Mantén pulsado para pegar o usa Ctrl+V" }));
+    }
+  }, [applyPastedText]);
 
   useEffect(() => {
     requestAnimationFrame(() => {
@@ -46,9 +64,17 @@ export default function CalculatorDrawer() {
       else if (operatorKeys[event.key]) setState((current) => chooseOperator(current, operatorKeys[event.key]));
       else if (event.key === "Backspace") setState((current) => ({ ...current, display: current.display.length > 1 ? current.display.slice(0, -1) : "0" }));
     };
+    const onPaste = (event: ClipboardEvent) => {
+      if (applyPastedText(event.clipboardData?.getData("text") ?? "")) event.preventDefault();
+    };
     window.addEventListener("keydown", onKeyDown);
-    return () => { document.body.style.overflow = overflow; window.removeEventListener("keydown", onKeyDown); };
-  }, [close, open]);
+    window.addEventListener("paste", onPaste);
+    return () => {
+      document.body.style.overflow = overflow;
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("paste", onPaste);
+    };
+  }, [applyPastedText, close, open]);
 
   const unary = (percent: boolean) => setState((current) => ({ ...current, display: formatCalculatorValue((Number(current.display) || 0) * (percent ? 0.01 : -1)), error: null }));
   const memory = (kind: "clear" | "recall" | "add" | "subtract") => setState((current) => {
@@ -75,7 +101,8 @@ export default function CalculatorDrawer() {
       <button className={`absolute inset-0 bg-black/60 transition-opacity ${open ? "opacity-100" : "opacity-0"}`} onClick={close} aria-label="Cerrar calculadora" tabIndex={open ? 0 : -1} />
       <aside ref={drawerRef} role="dialog" aria-modal="true" aria-labelledby="calculator-title" className={`absolute right-0 top-0 h-full w-full max-w-sm bg-surface text-on-surface shadow-2xl p-5 overflow-y-auto transition-transform duration-300 ${open ? "translate-x-0" : "translate-x-full"}`}>
         <div className="flex items-center justify-between mb-5"><h2 id="calculator-title" className="font-display text-xl font-bold">Calculadora</h2><button ref={closeRef} onClick={close} className="w-10 h-10 rounded-full hover:bg-on-surface/10 flex items-center justify-center" aria-label="Cerrar"><X /></button></div>
-        <div className="rounded-3xl bg-background p-5 mb-4 text-right min-h-28 flex flex-col justify-end"><span className="text-xs text-foreground/50 h-5">{state.accumulator !== null && state.operator ? `${formatCalculatorValue(state.accumulator)} ${state.operator}` : state.memory !== 0 ? `Memoria: ${formatCalculatorValue(state.memory)}` : ""}</span><output className="text-4xl font-bold break-all">{state.display}</output>{state.error && <span className="text-xs text-red-400 mt-1">{state.error}</span>}</div>
+        <div className="rounded-3xl bg-background p-5 mb-3 text-right min-h-28 flex flex-col justify-end"><span className="text-xs text-foreground/50 h-5">{state.accumulator !== null && state.operator ? `${formatCalculatorValue(state.accumulator)} ${state.operator}` : state.memory !== 0 ? `Memoria: ${formatCalculatorValue(state.memory)}` : ""}</span><output className="text-4xl font-bold break-all">{state.display}</output>{state.error && <span className="text-xs text-red-400 mt-1">{state.error}</span>}</div>
+        <button onClick={pasteFromClipboard} className="w-full h-11 rounded-xl bg-on-surface/8 hover:bg-on-surface/15 flex items-center justify-center gap-2 text-sm font-semibold mb-4"><ClipboardPaste className="w-4 h-4" />Pegar</button>
         <div className="grid grid-cols-4 gap-2 mb-3">{["MC", "MR", "M+", "M−"].map((label, index) => <button key={label} onClick={() => memory((["clear", "recall", "add", "subtract"] as const)[index])} className="py-2 rounded-xl bg-on-surface/5 text-sm font-semibold">{label}</button>)}</div>
         <div className="grid grid-cols-4 gap-2">{keys.map(([label, action, accent], index) => <button key={`${label}-${index}`} onClick={action} className={`h-14 rounded-2xl text-lg font-bold active:scale-95 transition ${accent ? "bg-primary text-on-primary" : "bg-on-surface/8 hover:bg-on-surface/15"}`} aria-label={label === "⌫" ? "Borrar último dígito" : label}>{label === "⌫" ? <Delete className="mx-auto" /> : label}</button>)}</div>
         {state.history.length > 0 && <section className="mt-6"><div className="flex justify-between mb-2"><h3 className="text-sm font-bold">Historial</h3><button onClick={() => setState((current) => ({ ...current, history: [] }))} className="text-xs text-primary">Borrar</button></div><ul className="space-y-2">{state.history.slice().reverse().map((item, index) => <li key={`${item.expression}-${index}`} className="rounded-xl bg-background px-3 py-2 text-right"><div className="text-xs text-foreground/50">{item.expression}</div><div className="font-semibold">= {item.result}</div></li>)}</ul></section>}

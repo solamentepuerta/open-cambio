@@ -232,12 +232,13 @@ export default function CalculatorCard({ rates: initialRates }: CalculatorCardPr
                         return (
                             <button
                                 onClick={() => setShowCustomModal(true)}
-                                className="px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap
+                                className="w-8 h-8 rounded-full text-xs font-semibold shrink-0
                                    bg-on-primary/15 text-on-primary/80 hover:bg-on-primary/25 active:scale-95
-                                   transition-all duration-200 flex items-center gap-1"
+                                   transition-all duration-200 flex items-center justify-center"
+                                aria-label="Añadir tasa personalizada"
+                                title="Añadir tasa personalizada"
                             >
                                 <Plus className="w-3.5 h-3.5" />
-                                Personalizada
                             </button>
                         );
                     })()}
