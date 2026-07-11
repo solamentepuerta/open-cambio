@@ -1,56 +1,70 @@
 import { NextResponse } from "next/server";
-import { safeRedisGet, safeRedisSet } from "@/lib/redis";
-import fs from "fs";
-import path from "path";
+import { getDailyRates, replaceDailyRates } from "@/lib/api";
+import { DailyEntry, DailyRates } from "@/types";
 
-const REDIS_KEY = "rates:daily";
-const LOCAL_FILE = path.join(process.cwd(), "data", "rates-daily.json");
+const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_BODY_BYTES = 500_000;
+
+function hasStrongSecret(value: string | undefined): value is string {
+  return Boolean(value && value.length >= 32);
+}
+
+function isDailyEntry(value: unknown): value is DailyEntry {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const entry = value as Partial<DailyEntry>;
+  return (
+    Object.keys(entry).every((key) => ["usd", "eur", "usdt", "date"].includes(key)) &&
+    [entry.usd, entry.eur, entry.usdt].every(
+      (rate) => typeof rate === "number" && Number.isFinite(rate) && rate > 0,
+    ) &&
+    typeof entry.date === "string" &&
+    !Number.isNaN(Date.parse(entry.date))
+  );
+}
+
+function isDailyRates(value: unknown): value is DailyRates {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      Object.entries(value).every(
+        ([key, entry]) => DATE_KEY_PATTERN.test(key) && isDailyEntry(entry),
+      ),
+  );
+}
 
 export async function GET() {
-    try {
-        // 1. Intentar obtener datos de Redis
-        let data = await safeRedisGet(REDIS_KEY);
-
-        // 2. Si Redis está vacío, intentar hacer el "seed" desde el archivo local
-        if (!data) {
-            console.log("Redis is empty, checking for local seed file...");
-            if (fs.existsSync(LOCAL_FILE)) {
-                try {
-                    const raw = fs.readFileSync(LOCAL_FILE, "utf-8");
-                    data = JSON.parse(raw);
-                    
-                    // Guardar en Redis para futuras peticiones
-                    await safeRedisSet(REDIS_KEY, data);
-                    console.log("Redis seeded with local data/rates-daily.json");
-                } catch (seedError) {
-                    console.error("Failed to seed from local file:", seedError);
-                }
-            }
-        }
-
-        // 3. Devolver datos o un objeto vacío si nada funcionó
-        return NextResponse.json(data || {});
-    } catch (error) {
-        console.error("Error fetching daily rates from Redis:", error);
-        return NextResponse.json({ error: "Failed to fetch history" }, { status: 500 });
-    }
+  try {
+    return NextResponse.json(await getDailyRates());
+  } catch (error) {
+    console.error("Failed to fetch daily rates", error);
+    return NextResponse.json({ error: "Failed to fetch history" }, { status: 500 });
+  }
 }
 
 export async function POST(request: Request) {
-    try {
-        const secret = request.headers.get("x-api-secret");
-        if (secret !== process.env.API_SECRET) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        }
+  const configuredSecret = process.env.API_SECRET;
+  if (!hasStrongSecret(configuredSecret)) {
+    return NextResponse.json({ error: "Server secret is not configured securely" }, { status: 503 });
+  }
+  if (request.headers.get("x-api-secret") !== configuredSecret) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-        const body = await request.json();
-        
-        // Guardar el nuevo historial en Redis
-        await safeRedisSet(REDIS_KEY, body);
-        
-        return NextResponse.json({ success: true });
-    } catch (error) {
-        console.error("Error updating daily rates in Redis:", error);
-        return NextResponse.json({ error: "Failed to update history" }, { status: 500 });
+  try {
+    const rawBody = await request.text();
+    if (new TextEncoder().encode(rawBody).byteLength > MAX_BODY_BYTES) {
+      return NextResponse.json({ error: "Payload too large" }, { status: 413 });
     }
+    const body: unknown = JSON.parse(rawBody);
+    if (!isDailyRates(body)) {
+      return NextResponse.json({ error: "Invalid daily rates payload" }, { status: 400 });
+    }
+    const stored = await replaceDailyRates(body);
+    if (!stored) return NextResponse.json({ error: "Storage unavailable" }, { status: 503 });
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Failed to update daily rates", error);
+    return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
+  }
 }

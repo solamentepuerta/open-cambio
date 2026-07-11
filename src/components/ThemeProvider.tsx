@@ -43,9 +43,12 @@ export default function ThemeProvider({ children }: { children: ReactNode }) {
     useEffect(() => {
         const savedMode = localStorage.getItem("oc-theme-mode") as ThemeMode | null;
         const savedColor = localStorage.getItem("oc-theme-color");
-        if (savedMode) setMode(savedMode);
-        if (savedColor && COLOR_PRESETS[savedColor]) setColorKey(savedColor);
-        setHydrated(true);
+        const frame = requestAnimationFrame(() => {
+            if (savedMode === "dark" || savedMode === "light") setMode(savedMode);
+            if (savedColor && COLOR_PRESETS[savedColor]) setColorKey(savedColor);
+            setHydrated(true);
+        });
+        return () => cancelAnimationFrame(frame);
     }, []);
 
     // Aplicar CSS Variables al <html>

@@ -40,7 +40,6 @@ export default function CalculatorCard({ rates: initialRates }: CalculatorCardPr
         selectedRate,
         setSelectedRate,
         historicalRates,
-        historicalDate,
     } = useCurrencyStore();
 
     const [mounted, setMounted] = useState(false);
@@ -53,11 +52,10 @@ export default function CalculatorCard({ rates: initialRates }: CalculatorCardPr
 
     // Cuando cambian las tasas históricas, actualizar allRates
     useEffect(() => {
-        if (historicalRates) {
-            setAllRates(historicalRates);
-        } else {
-            setAllRates(initialRates);
-        }
+        const frame = requestAnimationFrame(() => {
+            setAllRates(historicalRates ?? initialRates);
+        });
+        return () => cancelAnimationFrame(frame);
     }, [historicalRates, initialRates]);
 
     // La tasa activa
@@ -78,9 +76,9 @@ export default function CalculatorCard({ rates: initialRates }: CalculatorCardPr
     }, [selectedRate]);
 
     useEffect(() => {
-        setMounted(true);
+        const frame = requestAnimationFrame(() => setMounted(true));
         const timer = setTimeout(() => setAnimateIn(true), 100);
-        return () => clearTimeout(timer);
+        return () => { cancelAnimationFrame(frame); clearTimeout(timer); };
     }, []);
 
     // Recalcular cuando cambia la tasa
@@ -89,10 +87,13 @@ export default function CalculatorCard({ rates: initialRates }: CalculatorCardPr
         const num = parseFloat(rawUsd);
         if (!isNaN(num) && num > 0 && activeRate > 0) {
             const bs = (num * activeRate).toFixed(2);
-            setRawBs(bs);
-            setBsAmount(parseFloat(bs));
+            const frame = requestAnimationFrame(() => {
+                setRawBs(bs);
+                setBsAmount(parseFloat(bs));
+            });
+            return () => cancelAnimationFrame(frame);
         }
-    }, [activeRate, mounted]);
+    }, [activeRate, mounted, rawUsd, setBsAmount]);
 
     // Manejar input superior (USD/EUR)
     const handleTopChange = useCallback(
@@ -142,7 +143,7 @@ export default function CalculatorCard({ rates: initialRates }: CalculatorCardPr
                 setBaseAmount(parseFloat(top));
             } else if (clean === "" || clean === "0") {
                 setBsAmount(0);
-                setRawUsd("1.00");
+                setRawUsd("0.00");
                 setBaseAmount(0);
             }
         },
@@ -194,7 +195,7 @@ export default function CalculatorCard({ rates: initialRates }: CalculatorCardPr
 
                 {/* Rate Selector Chips */}
                 <div className="flex gap-2 z-10 mb-1 overflow-x-auto pb-1 scrollbar-none">
-                    {allRates.map((r) => (
+                    {allRates.filter((r) => r.symbol !== "CUSTOM").map((r) => (
                         <button
                             key={r.symbol}
                             onClick={() => setSelectedRate(r.symbol)}

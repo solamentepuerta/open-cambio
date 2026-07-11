@@ -1,5 +1,4 @@
-import { RateEntry } from "@/types";
-import { DailyEntry } from "@/lib/api";
+import { DailyEntry, RateEntry } from "@/types";
 import CurrencyCard from "./CurrencyCard";
 
 interface CurrencyListProps {

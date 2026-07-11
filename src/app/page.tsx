@@ -5,16 +5,18 @@ import Footer from "@/components/Footer";
 import AnnouncementPopup from "@/components/AnnouncementPopup";
 import { getExchangeRates, getPreviousDayRates } from "@/lib/api";
 import { AlertTriangle } from "lucide-react";
+import RatesRefreshButton from "@/components/RatesRefreshButton";
 
 // Forzar que se ejecute en el servidor en cada petición
 // (la lógica de cache está en api.ts, no en ISR de Next.js)
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const [{ rates, source, fetchedAt }, previousRates] = await Promise.all([
+  const [{ rates: ratesData }, previousRates] = await Promise.all([
     getExchangeRates(),
-    getPreviousDayRates()
+    getPreviousDayRates(),
   ]);
+  const { rates, source, fetchedAt } = ratesData;
 
   // Formatear fecha/hora de la última actualización
   const lastUpdate = new Date(fetchedAt);
@@ -39,14 +41,22 @@ export default async function Home() {
           <h2 className="text-base font-semibold text-foreground/80 font-display">
             Todas las tasas
           </h2>
-          <span className="text-[11px] text-foreground/40">
-            {dateStr} · {timeStr}
-          </span>
+          <div className="flex flex-col items-end">
+            <span className="text-[11px] text-foreground/40">
+              {dateStr} · {timeStr}
+            </span>
+            <RatesRefreshButton />
+          </div>
         </div>
         {source === "fallback" && (
           <div className="text-xs text-amber-500 flex items-center gap-1 ml-1 mt-1 font-medium">
             <AlertTriangle className="w-3.5 h-3.5" />
             Datos desactualizados — sin conexión a la API
+          </div>
+        )}
+        {source === "weekend-cache" && (
+          <div className="text-xs text-primary flex items-center gap-1 ml-1 mt-1 font-medium">
+            Tasa del último día hábil
           </div>
         )}
       </div>

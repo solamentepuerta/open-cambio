@@ -114,6 +114,11 @@ body {
   }
 }
 
+@keyframes refreshSweep {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(120%); }
+}
+
 /* Utility animation classes — delays account for 1.8s splash screen */
 .animate-md3-header {
   animation: md3-fade-in-scale 0.6s cubic-bezier(0.2, 0, 0, 1) 1.8s both;
