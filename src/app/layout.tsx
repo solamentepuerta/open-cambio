@@ -9,22 +9,27 @@ import SplashScreen from "@/components/SplashScreen";
 import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
 import { Analytics } from "@vercel/analytics/react";
 import CalculatorDrawer from "@/components/CalculatorDrawer";
+import {
+  SITE_DESCRIPTION,
+  SITE_NAME,
+  SITE_TITLE,
+  SITE_URL,
+} from "@/lib/site";
 
 const inter = Inter({
   variable: "--font-inter",
   subsets: ["latin"],
 });
 
-const siteUrl = "https://vex.vercel.app";
-const siteTitle = "Vex - Tasa libre de Venezuela";
-const siteDescription =
-  "Consulta las tasas del dólar BCV, euro y USDT en tiempo real. Calculadora de cambio rápida, sin anuncios y de código abierto.";
-
 export const metadata: Metadata = {
-  title: siteTitle,
-  description: siteDescription,
+  applicationName: SITE_NAME,
+  title: SITE_TITLE,
+  description: SITE_DESCRIPTION,
   manifest: "/manifest.json",
-  metadataBase: new URL(siteUrl),
+  metadataBase: new URL(SITE_URL),
+  alternates: {
+    canonical: "/",
+  },
   keywords: [
     "tasa de cambio",
     "dólar Venezuela",
@@ -34,32 +39,33 @@ export const metadata: Metadata = {
     "bolívares",
     "cambio dólar",
     "dólar paralelo",
-    "Vex",
+    "Open Cambio",
     "calculadora cambio",
   ],
-  authors: [{ name: "Vex", url: siteUrl }],
-  creator: "Vex",
+  authors: [{ name: SITE_NAME, url: SITE_URL }],
+  creator: SITE_NAME,
   openGraph: {
     type: "website",
     locale: "es_VE",
-    url: siteUrl,
-    title: siteTitle,
-    description: siteDescription,
-    siteName: "Vex",
+    url: SITE_URL,
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    siteName: SITE_NAME,
     images: [
       {
-        url: "/og-image.png",
+        url: "/api/share-image",
         width: 1200,
         height: 630,
-        alt: "Vex — Tasas de cambio en Venezuela",
+        alt: "Open Cambio — Tasas de cambio en Venezuela",
+        type: "image/png",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: siteTitle,
-    description: siteDescription,
-    images: ["/og-image.png"],
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    images: ["/api/share-image"],
   },
   icons: {
     icon: [
@@ -79,7 +85,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Vex",
+    title: SITE_NAME,
   },
 };
 
@@ -96,9 +102,29 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const structuredData = {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    name: SITE_NAME,
+    url: `${SITE_URL}/`,
+    description: SITE_DESCRIPTION,
+    applicationCategory: "FinanceApplication",
+    operatingSystem: "Any",
+    inLanguage: "es-VE",
+    offers: {
+      "@type": "Offer",
+      price: "0",
+      priceCurrency: "USD",
+    },
+  };
+
   return (
-    <html lang="es" suppressHydrationWarning>
+    <html lang="es-VE" suppressHydrationWarning>
       <body className={`${inter.variable} font-sans antialiased`}>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+        />
         <ThemeProvider>
           <SplashScreen />
           <ServiceWorkerRegistration />

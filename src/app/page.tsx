@@ -6,6 +6,7 @@ import AnnouncementPopup from "@/components/AnnouncementPopup";
 import { getExchangeRates, getPreviousDayRates } from "@/lib/api";
 import { AlertTriangle } from "lucide-react";
 import RatesRefreshButton from "@/components/RatesRefreshButton";
+import ShareRates from "@/components/ShareRates";
 
 // Forzar que se ejecute en el servidor en cada petición
 // (la lógica de cache está en api.ts, no en ISR de Next.js)
@@ -45,7 +46,10 @@ export default async function Home() {
             <span className="text-[11px] text-foreground/40">
               {dateStr} · {timeStr}
             </span>
-            <RatesRefreshButton />
+            <div className="mt-1.5 flex items-center gap-1.5">
+              <RatesRefreshButton />
+              <ShareRates fetchedAt={fetchedAt} />
+            </div>
           </div>
         </div>
         {source === "fallback" && (

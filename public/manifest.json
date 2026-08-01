@@ -1,6 +1,6 @@
 {
-  "name": "Vex - Tasa libre de Venezuela",
-  "short_name": "Vex",
+  "name": "Open Cambio - Tasa libre de Venezuela",
+  "short_name": "Open Cambio",
   "description": "Calculadora de tasas de cambio — Venezuela",
   "start_url": "/",
   "display": "standalone",

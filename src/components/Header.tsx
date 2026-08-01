@@ -6,7 +6,7 @@ export default function Header() {
             <div className="flex items-center gap-3">
                 <Image
                     src="/icons/android-chrome-192x192.png"
-                    alt="Vex logo"
+                    alt="Logo de Open Cambio"
                     width={44}
                     height={44}
                     className="rounded-2xl"
@@ -14,7 +14,7 @@ export default function Header() {
                 />
                 <div className="flex flex-col">
                     <h1 className="text-2xl font-bold tracking-tight text-foreground leading-none font-display">
-                        Vex
+                        Open Cambio
                     </h1>
                     <span className="text-xs text-foreground/50 tracking-widest uppercase">
                         Tasa libre de Venezuela

@@ -5,38 +5,20 @@ import { Plus, Copy, Check } from "lucide-react";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { RateEntry } from "@/types";
 import CustomRateModal from "./CustomRateModal";
+import {
+    formatCurrencyInput,
+    parseCurrencyInput,
+    sanitizeCurrencyInput,
+} from "@/lib/currencyInput";
 
 interface CalculatorCardProps {
     rates: RateEntry[];
 }
 
-// ============================================================
-// Formatear número con separadores: 41,404.55
-// Comas para miles, punto para decimales
-// ============================================================
-function formatNumber(value: string): string {
-    if (!value || value === "0") return "0";
-
-    // Separar parte entera y decimal
-    const parts = value.split(".");
-    const intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-    const decPart = parts[1];
-
-    if (decPart !== undefined) {
-        return `${intPart}.${decPart}`;
-    }
-    return intPart;
-}
-
-// Quitar formato para obtener el número puro
-function unformatNumber(value: string): string {
-    return value.replace(/,/g, "");
-}
-
 export default function CalculatorCard({ rates: initialRates }: CalculatorCardProps) {
     const {
-        setBaseAmount,
-        setBsAmount,
+        setAmounts,
+        lastEdited,
         selectedRate,
         setSelectedRate,
         historicalRates,
@@ -49,6 +31,7 @@ export default function CalculatorCard({ rates: initialRates }: CalculatorCardPr
     const [showCustomModal, setShowCustomModal] = useState(false);
     const [allRates, setAllRates] = useState<RateEntry[]>(initialRates);
     const [copiedField, setCopiedField] = useState<"top" | "bs" | null>(null);
+    const [focusedField, setFocusedField] = useState<"top" | "bs" | null>(null);
 
     // Cuando cambian las tasas históricas, actualizar allRates
     useEffect(() => {
@@ -81,73 +64,67 @@ export default function CalculatorCard({ rates: initialRates }: CalculatorCardPr
         return () => { cancelAnimationFrame(frame); clearTimeout(timer); };
     }, []);
 
-    // Recalcular cuando cambia la tasa
+    // Recalcular siempre desde el último campo editado.
     useEffect(() => {
         if (!mounted) return;
-        const num = parseFloat(rawUsd);
-        if (!isNaN(num) && num > 0 && activeRate > 0) {
-            const bs = (num * activeRate).toFixed(2);
-            const frame = requestAnimationFrame(() => {
-                setRawBs(bs);
-                setBsAmount(parseFloat(bs));
-            });
-            return () => cancelAnimationFrame(frame);
-        }
-    }, [activeRate, mounted, rawUsd, setBsAmount]);
+        if (activeRate <= 0) return;
+
+        const frame = requestAnimationFrame(() => {
+            if (lastEdited === "bs") {
+                const bs = parseCurrencyInput(rawBs) ?? 0;
+                const top = bs / activeRate;
+                setRawUsd(top.toFixed(2));
+                setAmounts(top, bs, "bs");
+                return;
+            }
+
+            const top = parseCurrencyInput(rawUsd) ?? 0;
+            const bs = top * activeRate;
+            setRawBs(bs.toFixed(2));
+            setAmounts(top, bs, "usd");
+        });
+
+        return () => cancelAnimationFrame(frame);
+    }, [activeRate, lastEdited, mounted, rawBs, rawUsd, setAmounts]);
 
     // Manejar input superior (USD/EUR)
     const handleTopChange = useCallback(
         (rawValue: string) => {
-            // Quitar comas del formato y limpiar caracteres no numéricos
-            let clean = unformatNumber(rawValue).replace(/[^0-9.]/g, "");
-            
-            // Eliminar ceros a la izquierda antes de un dígito (ej. "01" → "1")
-            clean = clean.replace(/^0+(\d)/, "$1");
-
-            const dotCount = (clean.match(/\./g) || []).length;
-            if (dotCount > 1) return;
+            const clean = sanitizeCurrencyInput(rawValue);
+            if (clean === null) return;
 
             setRawUsd(clean);
-            const num = parseFloat(clean);
-            if (!isNaN(num) && num >= 0 && activeRate > 0) {
-                setBaseAmount(num);
+            const num = parseCurrencyInput(clean);
+            if (num !== null && activeRate > 0) {
                 const bs = (num * activeRate).toFixed(2);
                 setRawBs(bs);
-                setBsAmount(parseFloat(bs));
-            } else if (clean === "" || clean === "0") {
-                setBaseAmount(0);
+                setAmounts(num, Number.parseFloat(bs), "usd");
+            } else if (clean === "") {
                 setRawBs("0.00");
-                setBsAmount(0);
+                setAmounts(0, 0, "usd");
             }
         },
-        [activeRate, setBaseAmount, setBsAmount]
+        [activeRate, setAmounts]
     );
 
     // Manejar input inferior (Bs)
     const handleBsChange = useCallback(
         (rawValue: string) => {
-            let clean = unformatNumber(rawValue).replace(/[^0-9.]/g, "");
-            
-            // Eliminar ceros a la izquierda antes de un dígito
-            clean = clean.replace(/^0+(\d)/, "$1");
-
-            const dotCount = (clean.match(/\./g) || []).length;
-            if (dotCount > 1) return;
+            const clean = sanitizeCurrencyInput(rawValue);
+            if (clean === null) return;
 
             setRawBs(clean);
-            const num = parseFloat(clean);
-            if (!isNaN(num) && num >= 0 && activeRate > 0) {
-                setBsAmount(num);
+            const num = parseCurrencyInput(clean);
+            if (num !== null && activeRate > 0) {
                 const top = (num / activeRate).toFixed(2);
                 setRawUsd(top);
-                setBaseAmount(parseFloat(top));
-            } else if (clean === "" || clean === "0") {
-                setBsAmount(0);
+                setAmounts(Number.parseFloat(top), num, "bs");
+            } else if (clean === "") {
                 setRawUsd("0.00");
-                setBaseAmount(0);
+                setAmounts(0, 0, "bs");
             }
         },
-        [activeRate, setBaseAmount, setBsAmount]
+        [activeRate, setAmounts]
     );
 
     // Copiar monto al portapapeles
@@ -258,9 +235,13 @@ export default function CalculatorCard({ rates: initialRates }: CalculatorCardPr
                             id="top-input"
                             type="text"
                             inputMode="decimal"
-                            value={formatNumber(rawUsd)}
+                            value={focusedField === "top" ? rawUsd : formatCurrencyInput(rawUsd)}
                             onChange={(e) => handleTopChange(e.target.value)}
-                            onFocus={(e) => e.target.select()}
+                            onFocus={(e) => {
+                                setFocusedField("top");
+                                e.target.select();
+                            }}
+                            onBlur={() => setFocusedField(null)}
                             className="bg-transparent border-none outline-none w-full text-3xl font-bold p-0 text-on-primary placeholder:text-on-primary/40"
                             placeholder="0.00"
                         />
@@ -283,7 +264,7 @@ export default function CalculatorCard({ rates: initialRates }: CalculatorCardPr
                 <div className="flex items-center justify-center z-10 px-1 py-0.5">
                     <span className="text-xs italic font-medium opacity-50">
                         1 {selectedRate === "CUSTOM" ? "Divisa" : selectedRate} = Bs{" "}
-                        {formatNumber(activeRate.toFixed(2))}
+                        {formatCurrencyInput(activeRate.toFixed(2))}
                     </span>
                 </div>
 
@@ -301,9 +282,13 @@ export default function CalculatorCard({ rates: initialRates }: CalculatorCardPr
                             id="bs-input"
                             type="text"
                             inputMode="decimal"
-                            value={formatNumber(rawBs)}
+                            value={focusedField === "bs" ? rawBs : formatCurrencyInput(rawBs)}
                             onChange={(e) => handleBsChange(e.target.value)}
-                            onFocus={(e) => e.target.select()}
+                            onFocus={(e) => {
+                                setFocusedField("bs");
+                                e.target.select();
+                            }}
+                            onBlur={() => setFocusedField(null)}
                             className="bg-transparent border-none outline-none w-full text-3xl font-bold p-0 text-on-primary placeholder:text-on-primary/40"
                             placeholder="0.00"
                         />
