@@ -29,16 +29,16 @@ export default function SplashScreen() {
             <div className="animate-spin-ccw">
                 <Image
                     src="/icons/android-chrome-192x192.png"
-                    alt="Vex logo"
+                    alt="Logo de Open Cambio"
                     width={80}
                     height={80}
                     className="rounded-3xl"
                     priority
                 />
             </div>
-            <h1 className="mt-5 text-2xl font-bold font-display text-foreground animate-[fadeIn_0.5s_ease_0.3s_both]">
-                Vex
-            </h1>
+            <p className="mt-5 text-2xl font-bold font-display text-foreground animate-[fadeIn_0.5s_ease_0.3s_both]">
+                Open Cambio
+            </p>
             <p className="mt-1 text-xs text-foreground/40 tracking-widest uppercase animate-[fadeIn_0.5s_ease_0.5s_both]">
                 Tasa libre de Venezuela
             </p>

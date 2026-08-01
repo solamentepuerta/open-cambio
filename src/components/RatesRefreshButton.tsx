@@ -64,7 +64,7 @@ export default function RatesRefreshButton() {
       type="button"
       onClick={refresh}
       disabled={remaining > 0 || status === "loading"}
-      className={`group relative mt-1.5 inline-flex items-center gap-1.5 overflow-hidden rounded-full px-2.5 py-1 text-[10px] font-semibold transition-all
+      className={`group relative inline-flex items-center gap-1.5 overflow-hidden rounded-full px-2.5 py-1 text-[10px] font-semibold transition-all
         ${status === "loading" ? "bg-primary/20 text-primary ring-1 ring-primary/40" : "bg-surface text-foreground/60 hover:text-primary"}
         disabled:cursor-not-allowed disabled:opacity-70`}
       aria-live="polite"
