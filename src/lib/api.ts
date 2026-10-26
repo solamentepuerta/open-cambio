@@ -277,7 +277,9 @@ async function fetchCpanelDailyRates(): Promise<DailyRates | null> {
   try {
     const url = process.env.BCV_HISTORY_URL
       ?? "https://puertale.com/bcv-scraper-test/daily-rates.json";
-    const response = await fetchWithTimeout(url);
+    const response = await fetchWithTimeout(url, 5000, {
+      next: { revalidate: 300 },
+    });
     if (!response.ok) return null;
     return parseDailyRatesPayload(await response.json());
   } catch {

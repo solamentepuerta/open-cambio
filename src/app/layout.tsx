@@ -25,6 +25,9 @@ export const metadata: Metadata = {
   applicationName: SITE_NAME,
   title: SITE_TITLE,
   description: SITE_DESCRIPTION,
+  verification: {
+    google: "NEBPzJk7RBSQbJ3vfmdk-U47F21TbZdCXOrUBASDTy8",
+  },
   manifest: "/manifest.json",
   metadataBase: new URL(SITE_URL),
   alternates: {

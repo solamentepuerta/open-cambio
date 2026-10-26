@@ -4,19 +4,22 @@ import CurrencyList from "@/components/CurrencyList";
 import Footer from "@/components/Footer";
 import AnnouncementPopup from "@/components/AnnouncementPopup";
 import { getExchangeRates, getPreviousDayRates } from "@/lib/api";
+import { unstable_cache } from "next/cache";
 import { AlertTriangle } from "lucide-react";
 import RatesRefreshButton from "@/components/RatesRefreshButton";
 import ShareRates from "@/components/ShareRates";
 
-// Forzar que se ejecute en el servidor en cada petición
-// (la lógica de cache está en api.ts, no en ISR de Next.js)
-export const dynamic = "force-dynamic";
+// Reutilizar la portada y regenerarla en segundo plano cada cinco minutos.
+export const revalidate = 300;
+
+const getHomeData = unstable_cache(
+  () => Promise.all([getExchangeRates(), getPreviousDayRates()]),
+  ["home-rates"],
+  { revalidate: 300, tags: ["home-rates"] },
+);
 
 export default async function Home() {
-  const [{ rates: ratesData }, previousRates] = await Promise.all([
-    getExchangeRates(),
-    getPreviousDayRates(),
-  ]);
+  const [{ rates: ratesData }, previousRates] = await getHomeData();
   const { rates, source, fetchedAt } = ratesData;
 
   // Formatear fecha/hora de la última actualización
