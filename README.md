@@ -123,6 +123,8 @@ Las contribuciones son bienvenidas. Si quieres mejorar Vex:
 4. Haz push a la rama (`git push origin mi-mejora`)
 5. Abre un Pull Request
 
+Consulta también el [roadmap del proyecto](ROADMAP.md) para ver las mejoras previstas.
+
 ## 📄 Licencia
 
 Este proyecto es de **código abierto** y está disponible bajo la licencia [MIT](LICENSE).

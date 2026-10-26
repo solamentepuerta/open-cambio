@@ -42,12 +42,11 @@ export default function CustomRateModal({ open, onClose, onSave }: CustomRateMod
         }
     }, [name, rateStr, onSave, handleClose]);
 
-    // Filtrar entrada: solo números y punto decimal
+    // Filtrar entrada: números y un separador decimal ("." o ",")
     const handleRateInput = (value: string) => {
-        const filtered = value.replace(/[^0-9.]/g, "");
-        const parts = filtered.split(".");
-        if (parts.length > 2) return;
-        setRateStr(filtered);
+        const filtered = value.replace(/[^0-9.,]/g, "");
+        if ((filtered.match(/[.,]/g) ?? []).length > 1) return;
+        setRateStr(filtered.replace(",", "."));
     };
 
     if (!open && !animatingOut) return null;

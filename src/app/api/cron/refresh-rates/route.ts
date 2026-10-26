@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { getExchangeRates } from "@/lib/api";
 
 export const runtime = "nodejs";
@@ -14,6 +15,8 @@ export async function GET(request: Request) {
 
   try {
     const result = await getExchangeRates({ forceRefresh: true, recordDaily: true });
+    revalidateTag("home-rates", { expire: 0 });
+    revalidatePath("/");
     return NextResponse.json({
       ok: true,
       refreshed: result.refreshed,

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { getExchangeRates } from "@/lib/api";
 import { acquireRedisLock, getRedis, safeRedisTtl } from "@/lib/redis";
 
@@ -35,6 +36,8 @@ export async function POST() {
 
   try {
     const result = await getExchangeRates({ forceRefresh: true, recordDaily: true });
+    revalidateTag("home-rates", { expire: 0 });
+    revalidatePath("/");
     return NextResponse.json({
       ok: true,
       refreshed: result.refreshed,
