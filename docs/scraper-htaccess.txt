@@ -1,0 +1,6 @@
+RewriteEngine On
+RewriteRule !^(latest|daily-rates)\.json$ - [F,L]
+
+<FilesMatch "^(latest|daily-rates)\.json$">
+    Require all granted
+</FilesMatch>
