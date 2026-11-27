@@ -26,6 +26,7 @@ const HISTORY_TTL_SECONDS = 90 * 24 * 60 * 60;
 const LOCK_TTL_SECONDS = 30;
 const DAILY_RETENTION_DAYS = 400;
 const HISTORY_RETENTION_DAYS = 90;
+const BCV_SCRAPER_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const CACHE_FILE = path.join(process.cwd(), "data", "rates-cache.json");
 const DAILY_FILE = path.join(process.cwd(), "data", "rates-daily.json");
 
@@ -113,6 +114,25 @@ function trimDaily(daily: DailyRates, now: Date): DailyRates {
   return Object.fromEntries(Object.entries(daily).filter(([key]) => key >= cutoffKey));
 }
 
+function isValidRate(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function mergeDailyRates(base: DailyRates, override: DailyRates | null): DailyRates {
+  const merged: DailyRates = { ...base };
+  for (const [key, entry] of Object.entries(override ?? {})) {
+    const previous = merged[key];
+    const usdt = entry.usdt ?? previous?.usdt;
+    merged[key] = {
+      usd: entry.usd,
+      eur: entry.eur,
+      ...(usdt !== undefined ? { usdt } : {}),
+      date: entry.date,
+    };
+  }
+  return merged;
+}
+
 export function parseDailyRatesPayload(value: unknown): DailyRates | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
 
@@ -120,17 +140,18 @@ export function parseDailyRatesPayload(value: unknown): DailyRates | null {
   for (const [key, rawEntry] of Object.entries(value)) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || !rawEntry || typeof rawEntry !== "object") continue;
     const entry = rawEntry as Partial<DailyEntry>;
+    const hasUsdt = entry.usdt !== undefined && entry.usdt !== null;
     if (
-      ![entry.usd, entry.eur, entry.usdt].every(
-        (rate) => typeof rate === "number" && Number.isFinite(rate) && rate > 0,
-      ) ||
+      !isValidRate(entry.usd) ||
+      !isValidRate(entry.eur) ||
+      (hasUsdt && !isValidRate(entry.usdt)) ||
       typeof entry.date !== "string" ||
       Number.isNaN(Date.parse(entry.date))
     ) continue;
     parsed[key] = {
-      usd: entry.usd!,
-      eur: entry.eur!,
-      usdt: entry.usdt!,
+      usd: entry.usd,
+      eur: entry.eur,
+      ...(hasUsdt ? { usdt: entry.usdt } : {}),
       date: entry.date,
     };
   }
@@ -239,6 +260,12 @@ export function parseBcvEffectiveDate(value: string): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+export function isBcvSnapshotFresh(capturedAt: string, now: number = Date.now()): boolean {
+  const captured = Date.parse(capturedAt);
+  if (Number.isNaN(captured)) return false;
+  return now - captured <= BCV_SCRAPER_MAX_AGE_MS;
+}
+
 async function fetchBcvScraper(): Promise<{
   usd: number;
   eur: number;
@@ -256,11 +283,16 @@ async function fetchBcvScraper(): Promise<{
     const eur = Number(data.rates?.EUR);
     const capturedAt = new Date(data.capturedAt);
     const effectiveAt = parseBcvEffectiveDate(data.effectiveDate);
+    const scraperIsFresh = isBcvSnapshotFresh(data.capturedAt);
+    if (!scraperIsFresh) {
+      console.warn(`BCV scraper snapshot is stale: ${data.capturedAt}`);
+    }
     if (
       !["bcv.org.ve", "vex-scraper"].includes(data.source) ||
       !Number.isFinite(usd) || usd <= 0 ||
       !Number.isFinite(eur) || eur <= 0 ||
       Number.isNaN(capturedAt.getTime()) ||
+      !scraperIsFresh ||
       !effectiveAt
     ) return null;
     const usdtValue = Number(data.rates?.USDT);
@@ -392,7 +424,10 @@ export async function getDailyRates(): Promise<DailyRates> {
     safeRedisGet<DailyRates>(DAILY_KEY),
   ]);
   const localDaily = readJsonFile<DailyRates>(DAILY_FILE) ?? {};
-  const daily = trimDaily({ ...localDaily, ...redisDaily, ...remoteDaily }, new Date());
+  const daily = trimDaily(
+    mergeDailyRates(mergeDailyRates(localDaily, redisDaily), remoteDaily),
+    new Date(),
+  );
   if (Object.keys(daily).length) await safeRedisSet(DAILY_KEY, daily, DAILY_TTL_SECONDS);
   return daily;
 }

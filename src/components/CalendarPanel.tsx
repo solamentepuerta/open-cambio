@@ -4,15 +4,8 @@ import { useCurrencyStore } from "@/store/useCurrencyStore";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
 import { MdCalendarMonth } from "react-icons/md";
 import { useEffect, useState, useCallback } from "react";
-import { RateEntry } from "@/types";
+import { DailyRates, RateEntry } from "@/types";
 
-interface DailyEntry {
-    usd: number;
-    eur: number;
-    usdt: number;
-    date: string;
-}
-type DailyRates = Record<string, DailyEntry>;
 const STALE_MS = 5 * 60 * 1000;
 
 export default function CalendarPanel() {
@@ -59,7 +52,9 @@ export default function CalendarPanel() {
             const rates: RateEntry[] = [
                 { name: "Dólar BCV", symbol: "USD", rate: entry.usd, lastUpdate: entry.date },
                 { name: "Euro BCV", symbol: "EUR", rate: entry.eur, lastUpdate: entry.date },
-                { name: "USDT", symbol: "USDT", rate: entry.usdt, lastUpdate: entry.date },
+                ...(entry.usdt !== undefined
+                    ? [{ name: "USDT", symbol: "USDT", rate: entry.usdt, lastUpdate: entry.date }]
+                    : []),
             ];
             setHistoricalRates(rates, dateKey);
             handleClose();
@@ -83,6 +78,8 @@ export default function CalendarPanel() {
     const calendarDays: (number | null)[] = [];
     for (let i = 0; i < firstDayOfWeek; i++) calendarDays.push(null);
     for (let d = 1; d <= daysInMonth; d++) calendarDays.push(d);
+
+    const selectedEntry = historicalDate ? dailyRates[historicalDate] : undefined;
 
     const prevMonth = () => {
         if (viewMonth === 0) { setViewMonth(11); setViewYear(viewYear - 1); }
@@ -202,25 +199,32 @@ export default function CalendarPanel() {
                     </div>
 
                     {/* Selected date info */}
-                    {historicalDate && dailyRates[historicalDate] && (
+                    {historicalDate && selectedEntry && (
                         <div className="mt-4 p-3 rounded-2xl bg-surface-variant/20 space-y-1">
                             <p className="text-xs text-foreground/50 uppercase tracking-wider font-semibold">
                                 Tasas del {new Date(historicalDate + "T12:00:00").toLocaleDateString("es-VE", { day: "2-digit", month: "long", year: "numeric" })}
                             </p>
-                            <div className="grid grid-cols-3 gap-2 mt-2">
+                            <div className={`grid ${selectedEntry.usdt !== undefined ? "grid-cols-3" : "grid-cols-2"} gap-2 mt-2`}>
                                 <div className="text-center">
                                     <p className="text-[10px] text-foreground/40">USD BCV</p>
-                                    <p className="text-sm font-bold">{dailyRates[historicalDate].usd.toFixed(2)}</p>
+                                    <p className="text-sm font-bold">{selectedEntry.usd.toFixed(2)}</p>
                                 </div>
                                 <div className="text-center">
                                     <p className="text-[10px] text-foreground/40">EUR BCV</p>
-                                    <p className="text-sm font-bold">{dailyRates[historicalDate].eur.toFixed(2)}</p>
+                                    <p className="text-sm font-bold">{selectedEntry.eur.toFixed(2)}</p>
                                 </div>
-                                <div className="text-center">
-                                    <p className="text-[10px] text-foreground/40">USDT</p>
-                                    <p className="text-sm font-bold">{dailyRates[historicalDate].usdt.toFixed(2)}</p>
-                                </div>
+                                {selectedEntry.usdt !== undefined && (
+                                    <div className="text-center">
+                                        <p className="text-[10px] text-foreground/40">USDT</p>
+                                        <p className="text-sm font-bold">{selectedEntry.usdt.toFixed(2)}</p>
+                                    </div>
+                                )}
                             </div>
+                            {selectedEntry.usdt === undefined && (
+                                <p className="text-[10px] text-foreground/40 pt-1">
+                                    USDT no disponible para esta fecha.
+                                </p>
+                            )}
                         </div>
                     )}
                 </div>

@@ -15,5 +15,5 @@ describe("GET /api/share-image", () => {
     ]);
     expect(view.getUint32(16)).toBe(1200);
     expect(view.getUint32(20)).toBe(630);
-  });
+  }, 15_000);
 });

@@ -1,4 +1,5 @@
-import { Github, Landmark } from "lucide-react";
+import { Code2, Github, Landmark } from "lucide-react";
+import Link from "next/link";
 import { SiTether } from "react-icons/si";
 
 export default function Footer() {
@@ -32,6 +33,13 @@ export default function Footer() {
                         <SiTether className="w-3.5 h-3.5" />
                         USDT
                     </a>
+                    <Link
+                        href="/docs/scraper"
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-foreground/5 hover:bg-foreground/10 text-foreground/60 hover:text-primary text-xs font-medium transition-all duration-200 active:scale-95"
+                    >
+                        <Code2 className="w-3.5 h-3.5" />
+                        Scraper
+                    </Link>
                     <a
                         href="https://github.com/solamentepuerta/open-cambio"
                         target="_blank"
