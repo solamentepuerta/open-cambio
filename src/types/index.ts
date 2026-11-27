@@ -16,7 +16,8 @@ export interface RatesData {
 export interface DailyEntry {
   usd: number;
   eur: number;
-  usdt: number;
+  /** Puede faltar en fechas importadas desde el histórico del BCV. */
+  usdt?: number;
   date: string;
 }
 

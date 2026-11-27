@@ -93,9 +93,9 @@ BCV_HISTORY_URL=https://puertale.com/bcv-scraper-test/daily-rates.json
 
 `CRON_SECRET` protege el refresco diario configurado en `vercel.json` para las 21:00 de Venezuela (01:00 UTC). Rota `API_SECRET` y `CRON_SECRET` periódicamente en Vercel y en cualquier integración que los utilice.
 
-`BCV_SCRAPER_URL` apunta al JSON generado cada cuatro horas por el recolector PHP. El JSON combina USD/EUR del BCV con USDT/VES de USDT.com.ve. Si una fuente no está disponible, la aplicación continúa usando DolarAPI y Pydolarve como respaldo.
+`BCV_SCRAPER_URL` apunta al JSON generado cada cuatro horas por el recolector PHP. El JSON combina USD/EUR del BCV con USDT/VES de USDT.com.ve. Los snapshots con más de 24 horas se descartan para no publicar tasas viejas; si una fuente no está disponible, la aplicación continúa usando DolarAPI y Pydolarve como respaldo.
 
-`BCV_HISTORY_URL` contiene hasta 400 días de tasas guardadas de forma atómica en cPanel. La aplicación combina ese historial principal con Redis y los datos locales, que permanecen como respaldo.
+`BCV_HISTORY_URL` contiene hasta 400 días de tasas guardadas de forma atómica en cPanel. La aplicación combina ese historial principal con Redis y los datos locales, que permanecen como respaldo. Las fechas importadas desde el histórico del BCV pueden no incluir `usdt`; la aplicación las acepta y muestra solo USD/EUR para esas fechas.
 
 ## 🏗️ Tecnologías
 
@@ -112,6 +112,27 @@ Las tasas se obtienen de APIs públicas con un sistema de respaldo en cascada:
 1. **Principal** → [dolarapi.com](https://ve.dolarapi.com) (BCV, Euro, USDT)
 2. **Respaldo** → [pydolarve.org](https://pydolarve.org)
 3. **Último recurso** → Datos locales almacenados en caché
+
+## 🧰 Scraper BCV en PHP (para terceros)
+
+El recolector que alimenta las tasas vive en [`docs/scraper-bcv.php`](docs/scraper-bcv.php) y su documentación pública está en [opencambio.puertale.com/docs/scraper](https://opencambio.puertale.com/docs/scraper).
+
+Consulta el BCV y USDT.com.ve, y publica:
+
+- `latest.json` — última captura con USD, EUR y USDT.
+- `daily-rates.json` — historial diario de hasta 400 días.
+
+El cron recomendado es cada cuatro horas:
+
+```cron
+17 */4 * * * /usr/local/bin/php /ruta/scraper.php >> /ruta/scraper.log 2>&1
+```
+
+Si curl falla con `unable to get local issuer certificate`, agrega el intermedio **Sectigo Public Server Authentication CA OV R36** a `certs/cacert.pem`. No desactives la verificación TLS del scraper.
+
+## 🙌 Agradecimientos
+
+Gracias a quienes reportaron el fallo del recolector y aportaron mejoras para que las tasas y el historial volvieran a actualizarse. El scraper queda documentado y disponible para que otros proyectos lo reutilicen.
 
 ## 🤝 Contribuir
 

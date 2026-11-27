@@ -12,11 +12,14 @@ function hasStrongSecret(value: string | undefined): value is string {
 function isDailyEntry(value: unknown): value is DailyEntry {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const entry = value as Partial<DailyEntry>;
+  const hasUsdt = entry.usdt !== undefined && entry.usdt !== null;
   return (
     Object.keys(entry).every((key) => ["usd", "eur", "usdt", "date"].includes(key)) &&
-    [entry.usd, entry.eur, entry.usdt].every(
+    [entry.usd, entry.eur].every(
       (rate) => typeof rate === "number" && Number.isFinite(rate) && rate > 0,
     ) &&
+    (!hasUsdt ||
+      (typeof entry.usdt === "number" && Number.isFinite(entry.usdt) && entry.usdt > 0)) &&
     typeof entry.date === "string" &&
     !Number.isNaN(Date.parse(entry.date))
   );
