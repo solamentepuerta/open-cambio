@@ -117,6 +117,10 @@ Las tasas se obtienen de APIs públicas con un sistema de respaldo en cascada:
 
 El recolector que alimenta las tasas vive en [`docs/scraper-bcv.php`](docs/scraper-bcv.php) y su documentación pública está en [opencambio.puertale.com/docs/scraper](https://opencambio.puertale.com/docs/scraper).
 
+Puedes descargar el paquete completo (scraper, `.htaccess`, README y certificados) desde [opencambio.puertale.com/downloads/scraper-bcv.zip](https://opencambio.puertale.com/downloads/scraper-bcv.zip). La documentación incluye ejemplos para consumir los JSON desde **JavaScript, Python, PHP, Java y C#**.
+
+Los archivos fuente descargables viven en `docs/` y el ZIP en `public/downloads/scraper-bcv.zip`. Si actualizas el scraper o el README, regenera el ZIP para que el paquete siga sincronizado.
+
 Consulta el BCV y USDT.com.ve, y publica:
 
 - `latest.json` — última captura con USD, EUR y USDT.
